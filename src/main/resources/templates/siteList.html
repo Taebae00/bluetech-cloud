@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlueTech-Cloud</title>
+    <link rel="icon" type="image/jpeg" href="/images/logo.jpg">
+
+    <link rel="stylesheet" href="/css/site-list.css">
+</head>
+<body>
+
+<div class="wrap">
+    <div class="top-title">BlueTech-Cloud</div>
+    <h1 class="page-title">Site List</h1>
+
+    <div class="site-count" th:text="'총 ' + ${list.size()} + '개의 현장'"></div>
+
+    <div id="emptyBox" class="empty-box" th:if="${list.size() == 0}">
+        기록한 현장이 없습니다.
+    </div>
+
+    <div class="site-list" id="siteListBox">
+        <a class="site-card"
+           th:each="site : ${list}"
+           th:href="@{/site/write/{id}(id=${site.id})}">
+
+            <div class="site-name" th:text="${site.getSite_name()}+' 현장'"></div>
+
+            <div class="site-info">
+                <span>작업일자 :</span>
+                <span th:text="${site.getWork_date()}"></span>
+            </div>
+
+            <div class="site-info">
+                <span>작성일시 :</span>
+                <span th:text="${site.getCreated_at() != null ? #temporals.format(site.getCreated_at(), 'yyyy-MM-dd HH:mm') : ''}"></span>
+            </div>
+
+            <div class="go-write">작성하러 가기 →</div>
+        </a>
+    </div>
+
+    <button type="button" class="add-btn" id="openSiteModal">+</button>
+</div>
+
+<div class="modal-overlay" id="siteModal" style="display: none;">
+    <div class="modal-box">
+        <h3 class="modal-title">현장 추가</h3>
+
+        <div class="modal-group">
+            <label for="siteNameInput">현장명</label>
+            <input type="text" id="siteNameInput" placeholder="현장명을 입력하세요">
+        </div>
+
+        <div class="modal-btn-wrap">
+            <button type="button" class="modal-cancel" id="closeSiteModal">취소</button>
+            <button type="button" class="modal-save" id="saveSiteBtn">저장</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script th:src="@{/js/InsertSite.js}"></script>
+</body>
+</html>

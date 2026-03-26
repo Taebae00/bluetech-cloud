@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlueTech-Cloud</title>
+    <link rel="icon" type="image/jpeg" href="/images/logo.jpg">
+    <link rel="stylesheet" href="/css/site-write.css">
+</head>
+<body>
+
+<div class="wrap">
+    <div class="brand-title">BlueTech-Cloud</div>
+
+    <div class="welcome-text"
+         th:text="|${loginUser.name} ${loginUser.role}님 안전한 점검 되세요.|">
+        홍길동 USER님 안전한 점검 되세요.
+    </div>
+
+    <div class="site-name"
+         th:text="|${site.site_name} 현장 (${siteCompletedCount}/${siteTotalCount})|">
+        현장명 (0/0)
+    </div>
+
+    <h2 class="page-title" th:text="${site.site_name} + ' 현장 점검 작성'">현장 점검 작성</h2>
+
+    <input type="hidden" id="siteId" th:value="${siteId}">
+
+    <div class="category-list">
+        <div class="category-box" th:each="entry : ${baseGroupedItems}">
+            <button type="button" class="category-title" onclick="toggleCategory(this)">
+                <span th:text="${entry.value[0].category_order + '. ' + entry.key + ' (' + (locationViewMap[entry.key] != null ? #lists.size(locationViewMap[entry.key]) : 0) + ')'}">
+</span>
+            </button>
+
+            <div class="category-inner">
+                <div class="location-add-box">
+                    <input type="text"
+                           class="location-name-input"
+                           th:data-template-category="${entry.key}"
+                           placeholder="예: MDF실, 1층 EPS실">
+                    <button type="button"
+                            class="add-location-btn"
+                            th:data-template-category="${entry.key}"
+                            onclick="addLocation(this)">
+                        + 위치 추가
+                    </button>
+                </div>
+
+                <div class="location-list"
+                     th:if="${locationViewMap[entry.key] != null and !#lists.isEmpty(locationViewMap[entry.key])}">
+                    <div class="location-box"
+                         th:each="loc : ${locationViewMap[entry.key]}">
+
+                        <div class="location-header">
+                            <button type="button" class="location-title" onclick="toggleLocation(this)">
+                                <div class="location-title-left">
+                                    <span class="location-title-main"
+                                          th:text="${loc.locationName}">위치명</span>
+                                </div>
+                                <div class="location-title-right">
+                                    <span class="location-progress-label">진행도</span>
+                                    <span class="location-progress"
+                                          th:text="|${loc.completed}/${loc.total}|">0/0</span>
+                                </div>
+                            </button>
+
+                            <button type="button"
+                                    class="delete-location-btn"
+                                    th:data-category-group="${loc.groupName}"
+                                    onclick="deleteLocation(this)">
+                                삭제
+                            </button>
+                        </div>
+
+                        <div class="item-list">
+                            <div class="item-card" th:each="item : ${entry.value}">
+                                <div class="item-row"
+                                     th:classappend="${completedMap[loc.groupName + '_' + item.id] != null and completedMap[loc.groupName + '_' + item.id]} ? ' done' : ''">
+
+                                    <button type="button"
+                                            class="item-status-badge status-open-btn"
+                                            th:data-item-id="${item.id}"
+                                            th:data-category-group="${loc.groupName}"
+                                            th:data-current-result="${resultValueMap[loc.groupName + '_' + item.id] != null ? resultValueMap[loc.groupName + '_' + item.id] : '미작성'}"
+                                            onclick="openResultModal(this)"
+                                            th:text="${resultValueMap[loc.groupName + '_' + item.id] != null and !#strings.isEmpty(resultValueMap[loc.groupName + '_' + item.id]) ? resultValueMap[loc.groupName + '_' + item.id] : '미작성'}">
+                                        미작성
+                                    </button>
+
+                                    <span class="item-content-text"
+                                          th:text="${item.order_no + '. ' + item.content}">
+            1. 점검내용
+        </span>
+
+                                    <button type="button"
+                                            class="item-toggle-btn"
+                                            th:data-item-id="${item.id}"
+                                            th:data-item-content="${item.content}"
+                                            th:data-category-group="${loc.groupName}"
+                                            onclick="toggleItemEditorByButton(this)">
+                                        열기
+                                    </button>
+                                </div>
+
+                                <div class="item-editor">
+                                    <div class="section-label">점검내용</div>
+                                    <div class="modal-content-text" th:text="${item.order_no + '. ' + item.content}">1. 점검내용</div>
+
+                                    <div class="section-label">사진첨부</div>
+                                    <div class="photo-grid editor-photo-grid">
+                                        <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
+                                            <span class="photo-slot-text">+ 현장사진</span>
+                                            <img class="photo-slot-img" style="display:none;">
+                                            <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+                                            <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+                                        </div>
+                                        <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
+                                            <span class="photo-slot-text">+ 현장사진</span>
+                                            <img class="photo-slot-img" style="display:none;">
+                                            <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+                                            <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="add-photo-btn" onclick="addInlinePhotoSlot(this)">+ 사진추가</button>
+
+                                    <div class="modal-group">
+                                        <label>메모</label>
+                                        <textarea class="inline-memo" rows="4" placeholder="메모를 입력하세요"></textarea>
+                                    </div>
+
+                                    <div class="inline-btn-wrap">
+                                        <button type="button"
+                                                class="inline-save-btn"
+                                                th:data-item-id="${item.id}"
+                                                th:data-category-group="${loc.groupName}"
+                                                onclick="saveInlineInspection(this)">
+                                            저장
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="danger-zone">
+    <button type="button"
+            class="download-site-btn"
+            th:onclick="|location.href='@{/site/{siteId}/download(siteId=${siteId})}'|">
+        📦 사이트 사진 내려받기
+    </button>
+
+    <button type="button" class="delete-site-btn" id="deleteSiteBtn">
+        ⚠️ 현장 삭제
+    </button>
+
+    <button type="button" class="logout-btn" id="logoutBtn">
+        로그아웃
+    </button>
+</div>
+
+<div id="resultModal" class="result-modal" style="display:none;">
+    <div class="result-modal-content">
+        <div class="result-modal-title">상태 선택</div>
+
+        <label class="result-option">
+            <input type="radio" name="resultOption" value="미작성">
+            <span>미작성</span>
+        </label>
+
+        <label class="result-option">
+            <input type="radio" name="resultOption" value="작성">
+            <span>작성</span>
+        </label>
+
+        <label class="result-option">
+            <input type="radio" name="resultOption" value="해당사항없음">
+            <span>해당사항없음</span>
+        </label>
+
+        <div class="result-modal-btns">
+            <button type="button" class="result-cancel-btn" onclick="closeResultModal()">취소</button>
+            <button type="button" class="result-save-btn" onclick="applyResultModal()">적용</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="/js/siteWrite.js"></script>
+</body>
+</html>
