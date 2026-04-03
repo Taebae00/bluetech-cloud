@@ -4,9 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BlueTech-Cloud</title>
-    <link rel="icon" type="image/jpeg" href="/images/logo.jpg">
 
-    <!-- CSS -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.jpg">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.jpg">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.jpg">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#1e3a8a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="BlueTech-Cloud">
+
     <link rel="stylesheet" href="/css/login.css">
 </head>
 <body>
@@ -15,6 +22,7 @@
 
     <div class="login-card">
         <h3 class="logo">Bluetech-Cloud</h3>
+        <p class="logo-subtitle">정보통신설비 유지보수·성능점검 시스템</p>
 
         <form method="post" id="loginForm">
 
@@ -28,6 +36,18 @@
                 <input type="password" id="password" name="password" placeholder="비밀번호 입력">
             </div>
 
+            <div class="login-options">
+                <label class="check-row">
+                    <input type="checkbox" id="saveId">
+                    <span>아이디 저장</span>
+                </label>
+
+                <label class="check-row">
+                    <input type="checkbox" id="autoLogin">
+                    <span>자동 로그인</span>
+                </label>
+            </div>
+
             <button type="submit" class="login-btn">로그인</button>
 
         </form>
@@ -36,6 +56,6 @@
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script th:src="@{/js/loginJS.js}"></script>
+<script src="/js/loginJS.js"></script>
 </body>
 </html>

@@ -12,6 +12,15 @@
 
 <div class="wrap">
     <div class="top-title">BlueTech-Cloud</div>
+    <div class="top-bar">
+        <div class="user-info">
+            <span th:text="${userName}">홍길동</span>
+            <span th:text="${userRole}">USER</span>
+            <span>님 안전한 점검 되세요</span>
+        </div>
+
+        <button type="button" id="logoutBtn" class="logout-btn">로그아웃</button>
+    </div>
     <h1 class="page-title">Site List</h1>
 
     <div class="site-count" th:text="'총 ' + ${list.size()} + '개의 현장'"></div>
@@ -25,7 +34,10 @@
            th:each="site : ${list}"
            th:href="@{/site/write/{id}(id=${site.id})}">
 
-            <div class="site-name" th:text="${site.getSite_name()}+' 현장'"></div>
+            <div class="site-name"
+                 th:text="${site.site_name} + ' 현장 ' + ${siteWorkTypeMap[site.id]}">
+                테스트 현장 성능점검
+            </div>
 
             <div class="site-info">
                 <span>작업일자 :</span>
@@ -49,8 +61,41 @@
         <h3 class="modal-title">현장 추가</h3>
 
         <div class="modal-group">
-            <label for="siteNameInput">현장명</label>
+            <label class="modal-label" for="siteNameInput">현장명</label>
             <input type="text" id="siteNameInput" placeholder="현장명을 입력하세요">
+        </div>
+
+        <div class="modal-group">
+            <div class="modal-label">작업유형</div>
+
+            <div class="worktype-grid">
+                <label class="worktype-item">
+                    <input type="radio" name="workType" value="성능점검" checked>
+                    <div class="circle"></div>
+                    <span>성능점검</span>
+                </label>
+
+                <label class="worktype-item">
+                    <input type="radio" name="workType" value="유지관리">
+                    <div class="circle"></div>
+                    <span>유지관리</span>
+                </label>
+
+                <label class="worktype-item">
+                    <input type="radio" name="workType" value="현황표">
+                    <div class="circle"></div>
+                    <span>현황표</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="modal-group">
+            <div class="modal-label">항목 선택</div>
+            <div class="category-top-btns">
+                <button type="button" id="checkAllBtn">전체선택</button>
+                <button type="button" id="uncheckAllBtn">전체해제</button>
+            </div>
+            <div id="categoryBox" class="category-box"></div>
         </div>
 
         <div class="modal-btn-wrap">

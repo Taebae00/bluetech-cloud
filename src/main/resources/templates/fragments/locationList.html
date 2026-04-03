@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<div th:fragment="locationList">
+    <div class="location-list"
+         th:if="${locationListData != null and !#lists.isEmpty(locationListData)}">
+        <div class="location-box"
+             th:each="loc : ${locationListData}"
+             th:if="${loc.locationName != '기본'}">
+
+            <div class="location-header">
+                <button type="button"
+                        class="location-title"
+                        th:if="${loc.locationName != '기본'}"
+                        onclick="toggleLocation(this)">
+                    <div class="location-title-left">
+                <span class="location-title-main"
+                      th:text="${loc.locationName}">위치명</span>
+                    </div>
+                    <div class="location-title-right">
+                        <span class="location-progress-label">진행도</span>
+                        <span class="location-progress"
+                              th:text="|${loc.completed}/${loc.total}|">0/0</span>
+                    </div>
+                </button>
+
+                <!-- 기본 위치는 제목을 그냥 텍스트형으로 -->
+                <div class="location-title static-title"
+                     th:if="${loc.locationName == '기본'}">
+                    <div class="location-title-left">
+                        <span class="location-title-main">기본</span>
+                    </div>
+                    <div class="location-title-right">
+                        <span class="location-progress-label">진행도</span>
+                        <span class="location-progress"
+                              th:text="|${loc.completed}/${loc.total}|">0/0</span>
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="delete-location-btn"
+                        th:if="${loc.locationName != '기본'}"
+                        th:data-category-group="${loc.groupName}"
+                        onclick="deleteLocation(this)">
+                    삭제
+                </button>
+            </div>
+
+            <div class="item-list"
+                 th:classappend="${loc.locationName == '기본'} ? ' open' : ''">
+                <div class="item-card"
+                     th:each="item : ${entryValue}"
+                     th:attr="data-current-result=${resultValueMap[loc.groupName + '_' + item.id] != null and !#strings.isEmpty(resultValueMap[loc.groupName + '_' + item.id]) ? resultValueMap[loc.groupName + '_' + item.id] : '미작성'}">
+
+                    <div class="item-row"
+                         th:classappend="${completedMap[loc.groupName + '_' + item.id] != null and completedMap[loc.groupName + '_' + item.id]} ? ' done' : ''">
+
+                <span class="item-content-text"
+                      th:text="${siteWorkType == '현황표' ? item.category : item.order_no + '. ' + item.content}">
+                    1. 점검내용
+                </span>
+
+                        <div class="item-action-buttons">
+                            <button type="button"
+                                    class="status-btn status-default-btn"
+                                    onclick="setItemResult(this, '미작성')">
+                                미작성
+                            </button>
+
+                            <button type="button"
+                                    class="status-btn status-na-btn"
+                                    onclick="setItemResultAndSave(this, '해당사항없음')">
+                                해당사항없음
+                            </button>
+
+                            <button type="button"
+                                    class="item-toggle-btn"
+                                    th:data-item-id="${item.id}"
+                                    th:data-item-content="${item.content}"
+                                    th:data-category-group="${loc.groupName}"
+                                    onclick="toggleItemEditorByButton(this)">
+                                열기
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="item-editor">
+                        <div class="photo-grid editor-photo-grid">
+                            <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
+                                <span class="photo-slot-text">+ 현장사진</span>
+                                <img class="photo-slot-img" style="display:none;">
+                                <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+                                <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+                            </div>
+                            <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
+                                <span class="photo-slot-text">+ 현장사진</span>
+                                <img class="photo-slot-img" style="display:none;">
+                                <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+                                <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+                            </div>
+                        </div>
+
+                        <button type="button" class="add-photo-btn" onclick="addInlinePhotoSlot(this)">+ 사진추가</button>
+
+                        <div class="modal-group">
+                            <textarea class="inline-memo" rows="4" placeholder="메모를 입력하세요"></textarea>
+                        </div>
+
+                        <div class="inline-btn-wrap">
+                            <button type="button"
+                                    class="inline-save-btn"
+                                    th:data-item-id="${item.id}"
+                                    th:data-category-group="${loc.groupName}"
+                                    onclick="saveInlineInspection(this)">
+                                저장/닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

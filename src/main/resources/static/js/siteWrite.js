@@ -1,13 +1,115 @@
 function toggleCategory(button) {
     const box = button.closest(".category-box");
     const inner = box.querySelector(".category-inner");
-    if (inner) inner.classList.toggle("open");
+    const isOpen = inner.classList.contains("open");
+
+    document.querySelectorAll(".category-inner.open").forEach(el => {
+        el.classList.remove("open");
+    });
+
+    if (!isOpen && inner) {
+        inner.classList.add("open");
+    }
+}
+
+function updateCategoryLocationCount(categoryBox) {
+    if (!categoryBox) return;
+
+    const titleSpan = categoryBox.querySelector(".category-title span");
+    if (!titleSpan) return;
+
+    const locationCount = categoryBox.querySelectorAll(".location-box").length;
+    const currentText = titleSpan.textContent.trim();
+    const baseText = currentText.replace(/\s*\(\d+\)\s*$/, "").trim();
+
+    titleSpan.textContent = `${baseText} (${locationCount})`;
+}
+
+function updateAllCategoryLocationCounts() {
+    document.querySelectorAll(".category-box").forEach(categoryBox => {
+        updateCategoryLocationCount(categoryBox);
+    });
+}
+
+function updateLocationProgress(locationBox) {
+    if (!locationBox) return;
+
+    const total = locationBox.querySelectorAll(".item-row").length;
+    const completed = Array.from(locationBox.querySelectorAll(".item-card"))
+        .filter(card => {
+            const val = card.dataset.currentResult || "미작성";
+            return val === "작성" || val === "해당사항없음";
+        }).length;
+
+    const progress = locationBox.querySelector(".location-progress");
+    if (progress) {
+        progress.textContent = `${completed}/${total}`;
+    }
+}
+
+function syncStatusButton(itemCard) {
+    if (!itemCard) return;
+
+    const statusBtn = itemCard.querySelector(".status-default-btn");
+    if (!statusBtn) return;
+
+    const currentResult = itemCard.dataset.currentResult || "미작성";
+
+    if (currentResult === "작성") {
+        statusBtn.textContent = "작성";
+        statusBtn.style.backgroundColor = "#16a34a";
+        statusBtn.style.color = "#ffffff";
+        statusBtn.style.borderColor = "#16a34a";
+    } else {
+        statusBtn.textContent = "미작성";
+        statusBtn.style.backgroundColor = "";
+        statusBtn.style.color = "";
+        statusBtn.style.borderColor = "";
+    }
+}
+
+function recalcSiteProgress() {
+    const siteNameBox = document.querySelector(".site-name");
+    const categoryBoxes = document.querySelectorAll(".category-box");
+
+    let siteCompleted = 0;
+    const siteTotal = categoryBoxes.length;
+
+    categoryBoxes.forEach(categoryBox => {
+        const hasAnyInputInCategory = Array.from(categoryBox.querySelectorAll(".item-card"))
+            .some(itemCard => {
+                const val = itemCard.dataset.currentResult || "미작성";
+                return val === "작성" || val === "해당사항없음";
+            });
+
+        if (hasAnyInputInCategory) {
+            siteCompleted++;
+        }
+    });
+
+    if (siteNameBox) {
+        const siteTitle = document.querySelector(".page-title")
+            ?.textContent?.replace(" 현장 점검 작성", "") || "현장";
+
+        siteNameBox.textContent = `${siteTitle} 현장 (${siteCompleted}/${siteTotal})`;
+    }
 }
 
 function toggleLocation(button) {
     const locationBox = button.closest(".location-box");
     const itemList = locationBox.querySelector(".item-list");
-    if (itemList) itemList.classList.toggle("open");
+    const isOpen = itemList.classList.contains("open");
+
+    const locationList = locationBox.closest(".location-list");
+    if (locationList) {
+        locationList.querySelectorAll(".item-list.open").forEach(el => {
+            el.classList.remove("open");
+        });
+    }
+
+    if (!isOpen && itemList) {
+        itemList.classList.add("open");
+    }
 }
 
 function toggleItemEditor(button) {
@@ -50,146 +152,39 @@ function addLocation(button) {
             templateCategory,
             newCategoryName: newLocationName
         },
-        success: function (res) {
-            alert("위치가 추가되었습니다.");
+        success: function () {
+            $.ajax({
+                type: "GET",
+                url: "/category/location-list",
+                data: {
+                    siteId,
+                    categoryName: templateCategory
+                },
+                success: function (html) {
+                    const oldList = categoryBox.querySelector(".location-list");
+                    const categoryInner = categoryBox.querySelector(".category-inner");
+                    const addBox = categoryInner.querySelector(".location-add-box");
 
-            const categoryInner = categoryBox.querySelector(".category-inner");
-            if (categoryInner) {
-                categoryInner.classList.add("open");
-            }
+                    if (oldList) {
+                        oldList.outerHTML = html;
+                    } else {
+                        addBox.insertAdjacentHTML("afterend", html);
+                    }
 
-            let locationList = categoryBox.querySelector(".location-list");
-            if (!locationList) {
-                locationList = document.createElement("div");
-                locationList.className = "location-list";
-                categoryInner.appendChild(locationList);
-            }
+                    input.value = "";
 
-            // 기존 열려있던 위치 아코디언 닫기
-            categoryBox.querySelectorAll(".item-list.open").forEach(el => {
-                el.classList.remove("open");
-            });
+                    categoryBox.querySelectorAll(".item-editor").forEach(bindMemoAutoWrite);
+                    categoryBox.querySelectorAll(".photo-slot").forEach(bindInlinePhotoSlot);
+                    categoryBox.querySelectorAll(".item-card").forEach(syncStatusButton);
 
-            const groupName = res.groupName;
-            const locationName = res.locationName;
-            const items = Array.isArray(res.items) ? res.items : [];
-            const totalCount = items.length;
-
-            const itemButtons = items.map(item => {
-                const contentText = `${item.order_no}. ${item.content}`;
-
-                return `
-            <div class="item-card">
-                <div class="item-row">
-                    <button type="button"
-                            class="item-status-badge status-open-btn"
-                            data-item-id="${item.id}"
-                            data-category-group="${groupName}"
-                            data-current-result="미작성"
-                            onclick="openResultModal(this)">
-                        미작성
-                    </button>
-
-                    <span class="item-content-text">${contentText}</span>
-
-                    <button type="button"
-                            class="item-toggle-btn"
-                            data-item-id="${item.id}"
-                            data-item-content="${item.content}"
-                            data-category-group="${groupName}"
-                            onclick="toggleItemEditorByButton(this)">
-                        열기
-                    </button>
-                </div>
-
-                <div class="item-editor">
-                    <div class="section-label">점검내용</div>
-                    <div class="modal-content-text">${contentText}</div>
-
-                    <div class="section-label">사진첨부</div>
-                    <div class="photo-grid editor-photo-grid">
-                        <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
-                            <span class="photo-slot-text">+ 현장사진</span>
-                            <img class="photo-slot-img" style="display:none;">
-                            <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
-                            <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
-                        </div>
-                        <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
-                            <span class="photo-slot-text">+ 현장사진</span>
-                            <img class="photo-slot-img" style="display:none;">
-                            <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
-                            <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
-                        </div>
-                    </div>
-
-                    <button type="button" class="add-photo-btn" onclick="addInlinePhotoSlot(this)">+ 사진추가</button>
-
-                    <div class="modal-group">
-                        <label>메모</label>
-                        <textarea class="inline-memo" rows="4" placeholder="메모를 입력하세요"></textarea>
-                    </div>
-
-                    <div class="inline-btn-wrap">
-                        <button type="button"
-                                class="inline-save-btn"
-                                data-item-id="${item.id}"
-                                data-category-group="${groupName}"
-                                onclick="saveInlineInspection(this)">
-                            저장
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-            }).join("");
-
-            const newLocationHtml = `
-        <div class="location-box">
-            <div class="location-header">
-                <button type="button" class="location-title" onclick="toggleLocation(this)">
-                    <div class="location-title-left">
-                        <span class="location-title-main">${locationName}</span>
-                    </div>
-                    <div class="location-title-right">
-                        <span class="location-progress-label">진행도</span>
-                        <span class="location-progress">0/${totalCount}</span>
-                    </div>
-                </button>
-
-                <button type="button"
-                        class="delete-location-btn"
-                        data-category-group="${groupName}"
-                        onclick="deleteLocation(this)">
-                    삭제
-                </button>
-            </div>
-
-            <div class="item-list">
-                ${itemButtons}
-            </div>
-        </div>
-    `;
-
-            locationList.insertAdjacentHTML("beforeend", newLocationHtml);
-
-            const newBox = locationList.lastElementChild;
-            if (newBox) {
-                newBox.querySelectorAll(".photo-slot").forEach(bindInlinePhotoSlot);
-            }
-
-            input.value = "";
-
-            const titleSpan = categoryBox.querySelector(".category-title span");
-            if (titleSpan) {
-                const currentText = titleSpan.textContent;
-                const match = currentText.match(/^(.*)\((\d+)\)$/);
-
-                if (match) {
-                    const title = match[1].trim();
-                    const count = parseInt(match[2], 10) + 1;
-                    titleSpan.textContent = `${title} (${count})`;
+                    updateCategoryLocationCount(categoryBox);
+                    recalcSiteProgress();
+                },
+                error: function (xhr) {
+                    console.error(xhr.responseText);
+                    alert("위치 목록 갱신 실패");
                 }
-            }
+            });
         },
         error: function (xhr) {
             console.error(xhr.responseText);
@@ -212,9 +207,14 @@ function deleteLocation(button) {
             alert("삭제되었습니다.");
 
             const locationBox = button.closest(".location-box");
+            const categoryBox = button.closest(".category-box");
+
             if (locationBox) {
                 locationBox.remove();
             }
+
+            updateCategoryLocationCount(categoryBox);
+            recalcSiteProgress();
         },
         error: function (xhr) {
             console.error(xhr.responseText);
@@ -361,12 +361,6 @@ function loadInlineInspectionData(button, editor) {
     const categoryGroup = button.dataset.categoryGroup;
 
     const itemCard = button.closest(".item-card");
-    const resultBtn = itemCard.querySelector(".status-open-btn");
-    if (resultBtn) {
-        const resultValue = res.result || "미작성";
-        resultBtn.dataset.currentResult = resultValue;
-        resultBtn.textContent = resultValue;
-    }
 
     $.ajax({
         type: "GET",
@@ -374,8 +368,36 @@ function loadInlineInspectionData(button, editor) {
         data: { siteId, itemId, categoryGroup },
         success: function (res) {
             const memo = editor.querySelector(".inline-memo");
-            if (memo) memo.value = res.memo || "";
+            if (memo) {
+                memo.value = res.memo || "";
+                memo.disabled = false;
+                memo.readOnly = false;
+            }
+
             renderSavedPhotos(editor, res.photos || []);
+
+            const hasPhoto = (res.photos || []).length > 0;
+            const hasMemo = !!(res.memo && res.memo.trim() !== "");
+            const resultValue = res.result || "미작성";
+
+            if (resultValue === "해당사항없음") {
+                itemCard.dataset.currentResult = "해당사항없음";
+            } else if (hasMemo || hasPhoto || resultValue === "작성") {
+                itemCard.dataset.currentResult = "작성";
+            } else {
+                itemCard.dataset.currentResult = "미작성";
+            }
+
+            const row = itemCard.querySelector(".item-row");
+            if (row) {
+                if (itemCard.dataset.currentResult === "작성" || itemCard.dataset.currentResult === "해당사항없음") {
+                    row.classList.add("done");
+                } else {
+                    row.classList.remove("done");
+                }
+            }
+
+            syncStatusButton(itemCard);
         },
         error: function (xhr) {
             console.error(xhr.responseText);
@@ -396,16 +418,7 @@ function saveInlineInspection(button) {
     const memo = editor.querySelector(".inline-memo").value.trim();
 
     const itemCard = button.closest(".item-card");
-    const resultBtn = itemCard.querySelector(".status-open-btn");
-    const result = resultBtn ? (resultBtn.dataset.currentResult || "미작성") : "미작성";
-
-    const hasPhoto = Array.from(editor.querySelectorAll(".inline-photo-input"))
-        .some(input => input.files.length > 0);
-
-    if (result !== "해당사항없음" && memo === "" && !hasPhoto) {
-        alert("메모 또는 사진이 있어야 저장할 수 있습니다.");
-        return;
-    }
+    const result = itemCard.dataset.currentResult || "미작성";
 
     const originalText = button.textContent;
     button.dataset.saving = "true";
@@ -433,47 +446,49 @@ function saveInlineInspection(button) {
         contentType: false,
         success: function () {
             const itemRow = itemCard.querySelector(".item-row");
-            if (itemRow) {
-                itemRow.classList.add("done");
-            }
+            const hasPhoto = Array.from(editor.querySelectorAll(".photo-slot"))
+                .some(slot => {
+                    const savedPhotoId = slot.dataset.savedPhotoId;
+                    const input = slot.querySelector(".inline-photo-input");
+                    const hasNewFile = input && input.files && input.files.length > 0;
+                    const hasPreview = slot.classList.contains("filled");
+                    return !!savedPhotoId || hasNewFile || hasPreview;
+                });
 
-            if (resultBtn) {
-                if (result === "해당사항없음") {
-                    resultBtn.textContent = "해당사항없음";
-                    resultBtn.dataset.currentResult = "해당사항없음";
-                } else {
-                    resultBtn.textContent = "작성";
-                    resultBtn.dataset.currentResult = "작성";
-                }
+            let currentResult = itemCard.dataset.currentResult || "미작성";
+
+            if (currentResult === "해당사항없음") {
+                itemCard.dataset.currentResult = "해당사항없음";
+                itemRow.classList.add("done");
+            } else if (memo !== "" || hasPhoto) {
+                itemCard.dataset.currentResult = "작성";
+                itemRow.classList.add("done");
+            } else {
+                itemCard.dataset.currentResult = "미작성";
+                itemRow.classList.remove("done");
             }
 
             const locationBox = document.querySelector(
                 `.delete-location-btn[data-category-group='${categoryGroup}']`
             )?.closest(".location-box");
 
-            if (locationBox) {
-                const total = locationBox.querySelectorAll(".item-row").length;
-                const completed = Array.from(locationBox.querySelectorAll(".status-open-btn"))
-                    .filter(btn => {
-                        const val = btn.dataset.currentResult || "미작성";
-                        return val === "작성" || val === "해당사항없음";
-                    }).length;
+            updateLocationProgress(locationBox);
 
-                const progress = locationBox.querySelector(".location-progress");
-                if (progress) {
-                    progress.textContent = `${completed}/${total}`;
-                }
+            const memoInput = editor.querySelector(".inline-memo");
+            if (memoInput) {
+                memoInput.disabled = false;
+                memoInput.readOnly = false;
             }
 
-            // 저장 후 세부점검사항 아코디언 닫기
+            syncStatusButton(itemCard);
+            recalcSiteProgress();
+
             editor.classList.remove("open");
 
             const toggleBtn = itemCard.querySelector(".item-toggle-btn");
             if (toggleBtn) {
                 toggleBtn.textContent = "열기";
             }
-
-            alert("저장되었습니다.");
         },
         error: function (xhr) {
             console.error(xhr.responseText);
@@ -488,7 +503,25 @@ function saveInlineInspection(button) {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".item-editor").forEach(bindMemoAutoWrite);
     document.querySelectorAll(".photo-slot").forEach(bindInlinePhotoSlot);
+    document.querySelectorAll(".item-card").forEach(syncStatusButton);
+
+    document.querySelectorAll(".status-direct-wrap .item-card").forEach(card => {
+
+        const editor = card.querySelector(".item-editor");
+
+        const fakeBtn = {
+            dataset: {
+                itemId: card.querySelector(".inline-save-btn").dataset.itemId,
+                categoryGroup: card.querySelector(".inline-save-btn").dataset.categoryGroup
+            },
+            closest: () => card
+        };
+
+        loadInlineInspectionData(fakeBtn, editor);
+    });
+
 
     const logoutBtn = document.getElementById("logoutBtn");
     if (logoutBtn) {
@@ -571,7 +604,6 @@ function applyResultModal() {
     currentResultTarget.dataset.currentResult = value;
     currentResultTarget.textContent = value;
 
-    // 해당사항없음이면 바로 저장
     if (value === "해당사항없음") {
         const itemCard = currentResultTarget.closest(".item-card");
         const saveBtn = itemCard.querySelector(".inline-save-btn");
@@ -587,7 +619,6 @@ function applyResultModal() {
 function toggleItemEditorByButton(button) {
     const card = button.closest(".item-card");
     const editor = card.querySelector(".item-editor");
-    const isOpen = editor.classList.contains("open");
 
     document.querySelectorAll(".item-editor.open").forEach(el => {
         el.classList.remove("open");
@@ -597,9 +628,312 @@ function toggleItemEditorByButton(button) {
         btn.textContent = "열기";
     });
 
-    if (!isOpen) {
-        editor.classList.add("open");
-        button.textContent = "닫기";
-        loadInlineInspectionData(button, editor);
+    editor.classList.add("open");
+    button.textContent = "열기";
+
+    loadInlineInspectionData(button, editor);
+
+    setTimeout(() => {
+        card.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+}
+
+function setItemResult(button, value) {
+    const itemCard = button.closest(".item-card");
+    const row = itemCard.querySelector(".item-row");
+
+    itemCard.dataset.currentResult = value;
+
+    if (row && value === "미작성") {
+        row.classList.remove("done");
     }
+
+    syncStatusButton(itemCard);
+}
+
+function setItemResultAndSave(button, value) {
+    const itemCard = button.closest(".item-card");
+    const editor = itemCard.querySelector(".item-editor");
+    const memo = editor.querySelector(".inline-memo")?.value.trim() || "";
+
+    const hasPhoto = Array.from(editor.querySelectorAll(".photo-slot"))
+        .some(slot => {
+            const savedPhotoId = slot.dataset.savedPhotoId;
+            const input = slot.querySelector(".inline-photo-input");
+            const hasNewFile = input && input.files && input.files.length > 0;
+            const hasPreview = slot.classList.contains("filled");
+            return !!savedPhotoId || hasNewFile || hasPreview;
+        });
+
+    if (memo !== "" || hasPhoto) {
+        const ok = confirm("사진 or 메모가 있는 항목입니다. 삭제하시겠습니까?");
+        if (!ok) return;
+
+        resetInspectionState(itemCard, "해당사항없음");
+        return;
+    }
+
+    itemCard.dataset.currentResult = "해당사항없음";
+
+    const saveBtn = itemCard.querySelector(".inline-save-btn");
+    if (saveBtn) {
+        saveInlineInspection(saveBtn);
+    }
+}
+
+function clearAllInlinePhotos(editor) {
+    editor.querySelectorAll(".photo-slot").forEach(slot => {
+        const input = slot.querySelector(".inline-photo-input");
+        const img = slot.querySelector(".photo-slot-img");
+        const text = slot.querySelector(".photo-slot-text");
+        const delBtn = slot.querySelector(".photo-delete-btn");
+
+        if (input) {
+            input.value = "";
+        }
+
+        if (img) {
+            img.src = "";
+            img.style.display = "none";
+        }
+
+        if (text) {
+            text.style.display = "block";
+        }
+
+        if (delBtn) {
+            delBtn.style.display = "none";
+        }
+
+        slot.classList.add("empty");
+        slot.classList.remove("filled");
+        delete slot.dataset.savedPhotoId;
+    });
+}
+
+function resetInspectionState(itemCard, targetResult) {
+    const siteId = $("#siteId").val();
+    const saveBtn = itemCard.querySelector(".inline-save-btn");
+    const itemId = saveBtn.dataset.itemId;
+    const categoryGroup = saveBtn.dataset.categoryGroup;
+    const editor = itemCard.querySelector(".item-editor");
+
+    $.ajax({
+        type: "POST",
+        url: "/inspection/reset",
+        data: {
+            siteId,
+            itemId,
+            categoryGroup,
+            targetResult
+        },
+        success: function () {
+            editor.querySelectorAll(".photo-slot").forEach(slot => {
+                clearInlineSlot(slot);
+            });
+
+            const memoInput = editor.querySelector(".inline-memo");
+            if (memoInput) {
+                memoInput.value = "";
+                memoInput.disabled = false;
+                memoInput.readOnly = false;
+            }
+
+            itemCard.dataset.currentResult = targetResult;
+
+            const row = itemCard.querySelector(".item-row");
+            if (row) {
+                if (targetResult === "해당사항없음") {
+                    row.classList.add("done");
+                } else {
+                    row.classList.remove("done");
+                }
+            }
+
+            const locationBox = itemCard.closest(".location-box");
+            if (locationBox) {
+                updateLocationProgress(locationBox);
+            }
+
+            syncStatusButton(itemCard);
+            recalcSiteProgress();
+        },
+        error: function (xhr) {
+            console.error(xhr.responseText);
+            alert(xhr.responseText || "상태 변경 실패");
+        }
+    });
+}
+
+function bindMemoAutoWrite(editor) {
+    const memoInput = editor.querySelector(".inline-memo");
+    if (!memoInput) return;
+
+    memoInput.addEventListener("input", function () {
+        const itemCard = editor.closest(".item-card");
+        const itemRow = itemCard.querySelector(".item-row");
+
+        if (memoInput.value.trim() !== "") {
+            itemCard.dataset.currentResult = "작성";
+            if (itemRow) {
+                itemRow.classList.add("done");
+            }
+        }
+
+        syncStatusButton(itemCard);
+    });
+
+    function openCategoryEditModal() {
+        const siteId = $("#siteId").val();
+
+        $.ajax({
+            type: "GET",
+            url: "/site/category-edit-data",
+            data: { siteId: siteId },
+            dataType: "json",
+            success: function (result) {
+                let html = "";
+                const selectedSet = new Set(result.selectedCategories || []);
+
+                result.allCategories.forEach(function (item) {
+                    const checked = selectedSet.has(item.category) ? "checked" : "";
+
+                    html += `
+                    <label class="category-item">
+                        <input type="checkbox" name="editCategoryItem" value="${item.category}" ${checked}>
+                        <span>${item.category}</span>
+                    </label>
+                `;
+                });
+
+                $("#categoryEditBox").html(html);
+                $("#categoryEditModal").show();
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                alert("점검항목 목록을 불러오지 못했습니다.");
+            }
+        });
+    }
+
+    function closeCategoryEditModal() {
+        $("#categoryEditModal").hide();
+    }
+
+    $(document).on("click", "#editCheckAllBtn", function () {
+        $("input[name='editCategoryItem']").prop("checked", true);
+    });
+
+    $(document).on("click", "#editUncheckAllBtn", function () {
+        $("input[name='editCategoryItem']").prop("checked", false);
+    });
+
+    function saveCategoryEdit() {
+        const siteId = $("#siteId").val();
+        const categories = [];
+
+        $("input[name='editCategoryItem']:checked").each(function () {
+            categories.push($(this).val());
+        });
+
+        if (categories.length === 0) {
+            alert("최소 1개 이상 선택해주세요.");
+            return;
+        }
+
+        $.ajax({
+            type: "POST",
+            url: "/site/category-edit",
+            contentType: "application/json",
+            data: JSON.stringify({
+                siteId: siteId,
+                categories: categories
+            }),
+            success: function () {
+                alert("점검항목이 수정되었습니다.");
+                location.reload();
+            },
+            error: function (xhr) {
+                console.error(xhr.responseText);
+                alert(xhr.responseText || "점검항목 수정 중 오류가 발생했습니다.");
+            }
+        });
+    }
+}
+
+function openCategoryEditModal() {
+    const siteId = $("#siteId").val();
+
+    $.ajax({
+        type: "GET",
+        url: "/site/category-edit-data",
+        data: { siteId: siteId },
+        dataType: "json",
+        success: function (result) {
+            let html = "";
+            const selectedSet = new Set(result.selectedCategories || []);
+
+            (result.allCategories || []).forEach(function (item) {
+                const checked = selectedSet.has(item.category) ? "checked" : "";
+
+                html += `
+                    <label class="category-item">
+                        <input type="checkbox" name="editCategoryItem" value="${item.category}" ${checked}>
+                        <span>${item.category}</span>
+                    </label>
+                `;
+            });
+
+            $("#categoryEditBox").html(html);
+            $("#categoryEditModal").show();
+        },
+        error: function (xhr) {
+            console.error(xhr.responseText);
+            alert("점검항목 목록을 불러오지 못했습니다.");
+        }
+    });
+}
+
+function closeCategoryEditModal() {
+    $("#categoryEditModal").hide();
+}
+
+$(document).on("click", "#editCheckAllBtn", function () {
+    $("input[name='editCategoryItem']").prop("checked", true);
+});
+
+$(document).on("click", "#editUncheckAllBtn", function () {
+    $("input[name='editCategoryItem']").prop("checked", false);
+});
+
+function saveCategoryEdit() {
+    const siteId = $("#siteId").val();
+    const categories = [];
+
+    $("input[name='editCategoryItem']:checked").each(function () {
+        categories.push($(this).val());
+    });
+
+    if (categories.length === 0) {
+        alert("최소 1개 이상 선택해주세요.");
+        return;
+    }
+
+    $.ajax({
+        type: "POST",
+        url: "/site/category-edit",
+        contentType: "application/json",
+        data: JSON.stringify({
+            siteId: siteId,
+            categories: categories
+        }),
+        success: function () {
+            alert("점검항목이 수정되었습니다.");
+            location.reload();
+        },
+        error: function (xhr) {
+            console.error(xhr.responseText);
+            alert(xhr.responseText || "점검항목 수정 중 오류가 발생했습니다.");
+        }
+    });
 }
