@@ -3,6 +3,7 @@ package com.example.bluetechcloud.service;
 import com.example.bluetechcloud.entity.InspectionItemEntity;
 import com.example.bluetechcloud.entity.InspectionResultEntity;
 import com.example.bluetechcloud.entity.PhotoEntity;
+import com.example.bluetechcloud.model.InspectionItemDTO;
 import com.example.bluetechcloud.model.InspectionResultDTO;
 import com.example.bluetechcloud.model.PhotoDTO;
 import com.example.bluetechcloud.repository.InspectionItemRepo;
@@ -12,10 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class InspectionResultService {
@@ -52,23 +50,20 @@ public class InspectionResultService {
                     return newEntity;
                 });
 
-        String safeResult = result == null ? "" : result.trim();
+        String safeResult = result == null ? "미작성" : result.trim();
         String safeMemo = memo == null ? "" : memo.trim();
-
         boolean hasPhoto = photos != null && photos.stream().anyMatch(p -> p != null && !p.isEmpty());
 
-        // 1) 해당사항없음 선택 시
-        if ("해당사항없음".equals(safeResult)) {
+        if ("해당사항없음".equals(safeResult) && safeMemo.isBlank() && !hasPhoto) {
             resultEntity.setResult("해당사항없음");
-            resultEntity.setMemo("해당사항없음");
-        }
-        // 2) 메모나 사진이 있으면 자동으로 작성
-        else if (!safeMemo.isBlank() || hasPhoto) {
+            resultEntity.setMemo("");
+        } else if ("미작성".equals(safeResult) && safeMemo.isBlank() && !hasPhoto) {
+            resultEntity.setResult("미작성");
+            resultEntity.setMemo("");
+        } else if (!safeMemo.isBlank() || hasPhoto) {
             resultEntity.setResult("작성");
             resultEntity.setMemo(safeMemo);
-        }
-        // 3) 아무것도 없으면 미작성
-        else {
+        } else {
             resultEntity.setResult("미작성");
             resultEntity.setMemo("");
         }
@@ -88,6 +83,30 @@ public class InspectionResultService {
                 photoEntity.setFileUrl(fileUrl);
 
                 photoRepo.save(photoEntity);
+            }
+        }
+    }
+
+    @Transactional
+    public void ensureDefaultCategoryGroups(Long siteId, Map<String, List<InspectionItemDTO>> baseGroupedItems) {
+        for (Map.Entry<String, List<InspectionItemDTO>> entry : baseGroupedItems.entrySet()) {
+            String baseCategory = entry.getKey();
+            String defaultGroupName = baseCategory + "_기본";
+
+            for (InspectionItemDTO item : entry.getValue()) {
+                boolean exists = inspectionResultRepo.existsBySiteIdAndItemIdAndCategoryGroup(
+                        siteId, item.getId(), defaultGroupName
+                );
+
+                if (!exists) {
+                    InspectionResultEntity entity = new InspectionResultEntity();
+                    entity.setSiteId(siteId);
+                    entity.setItemId(item.getId());
+                    entity.setCategoryGroup(defaultGroupName);
+                    entity.setResult("미작성");
+                    entity.setMemo("");
+                    inspectionResultRepo.save(entity);
+                }
             }
         }
     }
@@ -225,5 +244,41 @@ public class InspectionResultService {
             }
             inspectionResultRepo.delete(result);
         }
+    }
+
+    @Transactional
+    public void resetInspection(Long siteId,
+                                Long itemId,
+                                String categoryGroup,
+                                String targetResult) {
+
+        InspectionResultEntity resultEntity = inspectionResultRepo
+                .findFirstBySiteIdAndItemIdAndCategoryGroupOrderByIdDesc(siteId, itemId, categoryGroup)
+                .orElseGet(() -> {
+                    InspectionResultEntity newEntity = new InspectionResultEntity();
+                    newEntity.setSiteId(siteId);
+                    newEntity.setItemId(itemId);
+                    newEntity.setCategoryGroup(categoryGroup);
+                    return newEntity;
+                });
+
+        // 기존 저장 사진 전부 삭제
+        List<PhotoEntity> photos = photoRepo.findByResultId(resultEntity.getId());
+        for (PhotoEntity photo : photos) {
+            fileService.delete(photo.getFileUrl());   // S3 삭제
+            photoRepo.delete(photo);                  // DB 삭제
+        }
+
+        // 메모 비우기
+        resultEntity.setMemo("");
+
+        // 상태 저장
+        if ("해당사항없음".equals(targetResult)) {
+            resultEntity.setResult("해당사항없음");
+        } else {
+            resultEntity.setResult("미작성");
+        }
+
+        inspectionResultRepo.save(resultEntity);
     }
 }

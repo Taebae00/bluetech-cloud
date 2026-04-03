@@ -27,4 +27,7 @@ public class InspectionItemEntity {
 
     @Column(name = "category_order")
     private int categoryOrder;
+
+    @Column(name = "work_type")
+    private String workType;
 }

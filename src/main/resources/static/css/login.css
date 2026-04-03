@@ -12,6 +12,15 @@ body {
     justify-content: center;
 }
 
+.logo-subtitle {
+    margin: 8px 0 22px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #64748b;
+    text-align: center;
+    line-height: 1.5;
+}
+
 .wrap {
     width: 100%;
     max-width: 420px;
@@ -78,4 +87,21 @@ body {
     .login-card {
         padding: 24px 16px;
     }
+}
+
+.login-options {
+    margin: 14px 0 18px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #444;
+    cursor: pointer;
 }

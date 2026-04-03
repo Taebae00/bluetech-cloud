@@ -69,7 +69,6 @@ public class SitePhotoService {
 
         try (ZipOutputStream zos = new ZipOutputStream(response.getOutputStream())) {
 
-            // 1) 결과 기준으로 폴더 생성
             for (InspectionResultEntity result : results) {
 
                 InspectionItemEntity item = itemCache.computeIfAbsent(
@@ -87,21 +86,38 @@ public class SitePhotoService {
                 String resultValue = result.getResult() == null ? "" : result.getResult().trim();
 
                 boolean isNotApplicable = "해당사항없음".equals(resultValue);
+                boolean isNotWritten = "미작성".equals(resultValue);
 
-                if (!isNotApplicable && memo.isBlank()) {
+// 해당사항없음이면 폴더도 만들지 않고 그냥 건너뜀
+                if (isNotApplicable) {
+                    String naDir = categoryDir + "/" + itemDir + "/"
+                            + safeZipEntryName(item.getContent() + "_해당사항없음") + "/";
+
+                    if (createdDirs.add(naDir)) {
+                        zos.putNextEntry(new ZipEntry(naDir));
+                        zos.closeEntry();
+                    }
+
                     continue;
                 }
 
-                String txtFileName = safeZipEntryName(locationName + "_" + itemContent + ".txt");
+                if (isNotWritten) {
+                    continue;
+                }
 
-                String finalMemo = isNotApplicable ? "해당사항없음" : memo;
+                if (memo.isBlank()) {
+                    continue;
+                }
+
+
+                String txtFileName = safeZipEntryName(locationName + "_" + itemContent + ".txt");
 
                 String textContent = ""
                         + "대주제: " + item.getCategory() + System.lineSeparator()
                         + "세부점검사항: " + item.getContent() + System.lineSeparator()
                         + "위치명: " + locationName + System.lineSeparator()
                         + "점검결과: " + resultValue + System.lineSeparator()
-                        + "메모: " + finalMemo + System.lineSeparator();
+                        + "메모: " + memo + System.lineSeparator();
 
                 String zipPath = categoryDir + "/" + itemDir + "/" + txtFileName;
 
@@ -153,37 +169,6 @@ public class SitePhotoService {
                 }
             }
 
-            // 3) 메모 txt 추가
-            for (InspectionResultEntity result : results) {
-                InspectionItemEntity item = itemCache.computeIfAbsent(
-                        result.getItemId(),
-                        id -> itemRepo.findById(id)
-                                .orElseThrow(() -> new IllegalArgumentException("점검항목 없음: " + id))
-                );
-
-                String categoryDir = buildCategoryDir(item);
-                String itemDir = buildItemDir(item);
-                String locationName = extractLocationName(result.getCategoryGroup());
-                String itemContent = safeZipEntryName(item.getContent());
-
-                String memo = result.getMemo() == null ? "" : result.getMemo().trim();
-                String resultValue = result.getResult() == null ? "" : result.getResult().trim();
-
-                String txtFileName = safeZipEntryName(locationName + "_" + itemContent + ".txt");
-
-                String textContent = ""
-                        + "대주제: " + item.getCategory() + System.lineSeparator()
-                        + "세부점검사항: " + item.getContent() + System.lineSeparator()
-                        + "위치명: " + locationName + System.lineSeparator()
-                        + "점검결과: " + convertResultLabel(resultValue) + System.lineSeparator()
-                        + "메모: " + memo + System.lineSeparator();
-
-                String zipPath = categoryDir + "/" + itemDir + "/" + txtFileName;
-
-                zos.putNextEntry(new ZipEntry(zipPath));
-                zos.write(textContent.getBytes(StandardCharsets.UTF_8));
-                zos.closeEntry();
-            }
 
             zos.finish();
         }
