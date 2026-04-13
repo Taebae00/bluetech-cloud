@@ -17,13 +17,11 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -63,6 +61,12 @@ public class ExcelReportService {
 
             for (int i = 0; i < wb.getNumberOfSheets(); i++) {
                 Sheet sheet = wb.getSheetAt(i);
+                String name = sheet.getSheetName();
+
+                if (!name.equals("표지") && !name.equals("업무현황") && !name.equals("대상설비현황")) {
+                    continue;
+                }
+
                 autoSizeSafe(sheet, 0, 6);
             }
 
@@ -79,7 +83,47 @@ public class ExcelReportService {
         if (categoryGroup == null || !categoryGroup.contains("_")) {
             return "";
         }
-        return categoryGroup.split("_")[1];
+        String[] parts = categoryGroup.split("_", 2);
+        return parts.length > 1 ? parts[1] : "";
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private boolean hasMeaningfulResult(String resultValue) {
+        String value = safe(resultValue).trim();
+        return !value.isEmpty() && !"미작성".equals(value);
+    }
+
+    private boolean hasMeaningfulMemo(String memo) {
+        return !isBlank(memo);
+    }
+
+    private boolean shouldRenderItemBlock(InspectionResultEntity result, List<PhotoEntity> photos) {
+        if (result == null) {
+            return photos != null && !photos.isEmpty();
+        }
+
+        String resultValue = safe(result.getResult()).trim();
+        String memo = safe(result.getMemo()).trim();
+        boolean hasPhotos = photos != null && !photos.isEmpty();
+
+        return hasMeaningfulResult(resultValue) || hasMeaningfulMemo(memo) || hasPhotos;
+    }
+
+    private void applyCategorySheetLayout(Sheet sheet) {
+        for (int i = 0; i <= 7; i++) {
+            sheet.setColumnWidth(i, 2800);
+        }
+
+        sheet.setDisplayGridlines(false);
+        sheet.setFitToPage(true);
+        sheet.setHorizontallyCenter(true);
+
+        PrintSetup printSetup = sheet.getPrintSetup();
+        printSetup.setLandscape(false);
+        sheet.setAutobreaks(true);
     }
 
     private int createItemBlock(
@@ -96,51 +140,65 @@ public class ExcelReportService {
         String resultValue = result == null ? "" : safe(result.getResult());
         String memo = result == null ? "" : safe(result.getMemo());
 
-        // 제목
-        mergeAndSet(sheet, startRow, startRow, 0, 3, itemTitle, styles.header);
+        // 제목 바
+        mergeAndSet(sheet, startRow, startRow, 0, 7, itemTitle, styles.header);
+        Row titleRow = sheet.getRow(startRow);
+        if (titleRow == null) titleRow = sheet.createRow(startRow);
+        titleRow.setHeightInPoints(24);
         startRow++;
 
         // 위치 / 결과
         Row row1 = sheet.createRow(startRow++);
+        row1.setHeightInPoints(22);
         createCell(row1, 0, "위치명", styles.label);
-        createCell(row1, 1, locationName, styles.value);
-        createCell(row1, 2, "점검결과", styles.label);
-        createCell(row1, 3, resultValue, styles.value);
+        mergeCellsAndSet(sheet, row1, row1.getRowNum(), 1, 3, locationName, styles.value);
+        createCell(row1, 4, "점검결과", styles.label);
+        mergeCellsAndSet(sheet, row1, row1.getRowNum(), 5, 7, resultValue, styles.value);
 
         // 메모
         Row row2 = sheet.createRow(startRow++);
+        row2.setHeightInPoints(42);
         createCell(row2, 0, "메모", styles.label);
-        mergeCellsAndSet(sheet, row2, startRow - 1, 1, 3, memo, styles.value);
+        mergeCellsAndSet(sheet, row2, row2.getRowNum(), 1, 7, memo, styles.value);
 
         // 사진 제목
-        mergeAndSet(sheet, startRow, startRow, 0, 3, "점검 사진", styles.tableHeader);
+        mergeAndSet(sheet, startRow, startRow, 0, 7, "점검 사진", styles.tableHeader);
+        Row photoTitleRow = sheet.getRow(startRow);
+        if (photoTitleRow == null) photoTitleRow = sheet.createRow(startRow);
+        photoTitleRow.setHeightInPoints(22);
         startRow++;
 
         // 사진 없으면 안내문
         if (photos == null || photos.isEmpty()) {
-            mergeAndSet(sheet, startRow, startRow, 0, 3, "첨부된 사진 없음", styles.note);
+            mergeAndSet(sheet, startRow, startRow, 0, 7, "첨부된 사진 없음", styles.note);
+            Row noPhotoRow = sheet.getRow(startRow);
+            if (noPhotoRow == null) noPhotoRow = sheet.createRow(startRow);
+            noPhotoRow.setHeightInPoints(24);
             startRow += 2;
             return startRow;
         }
 
-        // 사진 2장씩 배치
+        // 사진 2장씩 넓게 배치
         int photoIndex = 0;
         while (photoIndex < photos.size()) {
-            Row imgRow = sheet.createRow(startRow);
-            imgRow.setHeightInPoints(140);
+            for (int r = 0; r < 12; r++) {
+                Row imgRow = sheet.getRow(startRow + r);
+                if (imgRow == null) imgRow = sheet.createRow(startRow + r);
+                imgRow.setHeightInPoints(18);
+            }
 
-            insertPhoto(sheet, wb, photos.get(photoIndex), startRow, 0, 1);
+            insertPhoto(sheet, wb, photos.get(photoIndex), startRow, startRow + 11, 0, 4);
             photoIndex++;
 
             if (photoIndex < photos.size()) {
-                insertPhoto(sheet, wb, photos.get(photoIndex), startRow, 2, 3);
+                insertPhoto(sheet, wb, photos.get(photoIndex), startRow, startRow + 11, 4, 8);
                 photoIndex++;
             }
 
-            startRow += 8;
+            startRow += 12;
         }
 
-        startRow += 1;
+        startRow += 2;
         return startRow;
     }
 
@@ -156,7 +214,8 @@ public class ExcelReportService {
         }
     }
 
-    private void insertPhoto(Sheet sheet, Workbook wb, PhotoEntity photo, int row1, int col1, int col2) {
+    private void insertPhoto(Sheet sheet, Workbook wb, PhotoEntity photo,
+                             int row1, int row2, int col1, int col2) {
         try {
             String fileUrl = photo.getFileUrl();
             String s3Key = extractKeyFromUrl(fileUrl);
@@ -183,13 +242,12 @@ public class ExcelReportService {
             ClientAnchor anchor = helper.createClientAnchor();
 
             anchor.setRow1(row1);
-            anchor.setRow2(row1 + 6);
+            anchor.setRow2(row2);
             anchor.setCol1(col1);
             anchor.setCol2(col2);
 
             Picture pict = drawing.createPicture(anchor, pictureIdx);
-            pict.resize(1.0);
-
+            pict.resize(0.95);
         } catch (Exception e) {
             System.out.println("엑셀 사진 삽입 실패: " + photo.getFileUrl());
             e.printStackTrace();
@@ -302,11 +360,6 @@ public class ExcelReportService {
             grouped.computeIfAbsent(item.getCategory(), k -> new ArrayList<>()).add(item);
         }
 
-        Map<Long, InspectionItemEntity> itemMap = new HashMap<>();
-        for (InspectionItemEntity item : items) {
-            itemMap.put(item.getId(), item);
-        }
-
         Map<Long, List<InspectionResultEntity>> resultsByItemId = new HashMap<>();
         for (InspectionResultEntity result : results) {
             resultsByItemId.computeIfAbsent(result.getItemId(), k -> new ArrayList<>()).add(result);
@@ -317,14 +370,12 @@ public class ExcelReportService {
             List<InspectionItemEntity> categoryItems = entry.getValue();
 
             Sheet sheet = wb.createSheet(trimSheetName(category));
-            setColumnWidths(sheet, 0, 0, 5000);
-            setColumnWidths(sheet, 1, 1, 12000);
-            setColumnWidths(sheet, 2, 2, 12000);
-            setColumnWidths(sheet, 3, 3, 12000);
+            applyCategorySheetLayout(sheet);
 
             int rowIdx = 0;
+            boolean hasRenderedAnyBlock = false;
 
-            mergeAndSet(sheet, rowIdx, rowIdx, 0, 3, "<" + category + " 성능점검표>", styles.header);
+            mergeAndSet(sheet, rowIdx, rowIdx, 0, 7, "<" + category + " 성능점검표>", styles.header);
             rowIdx += 2;
 
             for (InspectionItemEntity item : categoryItems) {
@@ -332,12 +383,9 @@ public class ExcelReportService {
                         resultsByItemId.getOrDefault(item.getId(), Collections.emptyList());
 
                 if (itemResults.isEmpty()) {
-                    // 결과 없는 항목도 틀은 만들어줌
-                    rowIdx = createItemBlock(sheet, wb, styles, rowIdx, item, null, Collections.emptyList());
                     continue;
                 }
 
-                // categoryGroup(위치)별로 묶어서 출력
                 Map<String, List<InspectionResultEntity>> byGroup = new LinkedHashMap<>();
                 for (InspectionResultEntity result : itemResults) {
                     String key = safe(result.getCategoryGroup());
@@ -346,19 +394,19 @@ public class ExcelReportService {
 
                 for (Map.Entry<String, List<InspectionResultEntity>> groupEntry : byGroup.entrySet()) {
                     InspectionResultEntity latest = groupEntry.getValue().get(groupEntry.getValue().size() - 1);
-
                     List<PhotoEntity> photos = photoRepo.findByResultId(latest.getId());
+
+                    if (!shouldRenderItemBlock(latest, photos)) {
+                        continue;
+                    }
+
                     rowIdx = createItemBlock(sheet, wb, styles, rowIdx, item, latest, photos);
+                    hasRenderedAnyBlock = true;
                 }
             }
 
-            for (int c = 0; c <= 3; c++) {
-                try {
-                    sheet.autoSizeColumn(c);
-                    int current = sheet.getColumnWidth(c);
-                    sheet.setColumnWidth(c, Math.min(current + 800, 20000));
-                } catch (Exception ignored) {
-                }
+            if (!hasRenderedAnyBlock) {
+                mergeAndSet(sheet, rowIdx, rowIdx, 0, 7, "출력할 점검 내용이 없습니다.", styles.note);
             }
         }
     }
@@ -421,8 +469,14 @@ public class ExcelReportService {
         Row row = sheet.getRow(firstRow);
         if (row == null) row = sheet.createRow(firstRow);
         Cell cell = row.createCell(firstCol);
-        cell.setCellValue(text);
+        cell.setCellValue(text == null ? "" : text);
         cell.setCellStyle(style);
+
+        for (int c = firstCol + 1; c <= lastCol; c++) {
+            Cell extra = row.getCell(c);
+            if (extra == null) extra = row.createCell(c);
+            extra.setCellStyle(style);
+        }
     }
 
     private void createCell(Row row, int col, String value, CellStyle style) {
