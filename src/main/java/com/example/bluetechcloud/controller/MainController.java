@@ -33,12 +33,13 @@ public class MainController {
     private final SitePhotoService sitePhotoService;
     private final InspectionItemRepo inspectionItemRepo;
     private final SiteInspectionItemRepo siteInspectionItemRepo;
+    private final ExcelReportService  excelReportService;
 
     public MainController(UserService userService, SiteService siteService,
                           InspectionItemService inspectionItemService,
                           InspectionResultService inspectionResultService,
                           FileService fileService, InspectionItemRepo inspectionItemRepo, UserRepo userRepo, PhotoRepo photoRepo,
-                          SitePhotoService sitePhotoService, InspectionItemRepo inspectionItemRepo1, SiteInspectionItemRepo siteInspectionItemRepo) {
+                          SitePhotoService sitePhotoService, InspectionItemRepo inspectionItemRepo1, SiteInspectionItemRepo siteInspectionItemRepo, ExcelReportService excelReportService) {
         this.userService = userService;
         this.siteService = siteService;
         this.inspectionItemService = inspectionItemService;
@@ -48,6 +49,7 @@ public class MainController {
         this.sitePhotoService = sitePhotoService;
         this.inspectionItemRepo = inspectionItemRepo1;
         this.siteInspectionItemRepo = siteInspectionItemRepo;
+        this.excelReportService = excelReportService;
     }
 
     // 🔥 공통 로그인 체크
@@ -842,6 +844,9 @@ public class MainController {
         return ResponseEntity.ok().build();
     }
 
-
+    @GetMapping("/site/{siteId}/excel")
+    public void downloadExcel(@PathVariable Long siteId, HttpServletResponse response) throws IOException {
+        excelReportService.downloadPerformanceCheckExcel(siteId, response);
+    }
 }
 
