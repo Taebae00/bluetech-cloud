@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<input type="hidden" id="siteTotalCount" th:value="${siteTotalCount}">
+
 <div class="wrap">
 
     <div class="top-nav">
@@ -38,6 +40,33 @@
 
     <input type="hidden" id="siteId" th:value="${siteId}">
 
+    <button type="button" class="sync-btn" onclick="syncOfflineData()">
+        동기화
+    </button>
+
+    <div id="syncStatusModal" class="sync-status-modal" style="display:none;">
+        <div class="sync-status-modal-content">
+            <div class="sync-status-title" id="syncStatusTitle">동기화 중입니다...</div>
+
+            <div class="sync-progress-bar">
+                <div id="syncProgressFill" class="sync-progress-fill"></div>
+            </div>
+
+            <div id="syncProgressText" class="sync-progress-text">0%</div>
+            <div id="syncStatusSubtext" class="sync-status-subtext">잠시만 기다려주세요.</div>
+
+            <div class="sync-status-btn-wrap">
+                <button type="button"
+                        id="syncStatusCloseBtn"
+                        class="sync-status-close-btn"
+                        onclick="closeSyncStatusModal()"
+                        disabled>
+                    완료
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="category-list">
         <div class="category-box" th:each="entry : ${baseGroupedItems}">
             <button type="button" class="category-title" onclick="toggleCategory(this)">
@@ -51,10 +80,10 @@
                 <div th:if="${siteWorkType == '현황표'}" class="status-direct-wrap">
                     <div class="item-card"
                          th:with="item=${entry.value[0]}"
-                         th:attr="data-current-result=${resultValueMap[entry.key + '_기본_' + entry.value[0].id] != null and !#strings.isEmpty(resultValueMap[entry.key + '_기본_' + entry.value[0].id]) ? resultValueMap[entry.key + '_기본_' + entry.value[0].id] : '미작성'}">
+                         th:attr="data-current-result=${resultValueMap[entry.key + '_' + item.id] != null and !#strings.isEmpty(resultValueMap[entry.key + '_' + item.id]) ? resultValueMap[entry.key + '_' + item.id] : '미작성'}">
 
                         <div class="item-row"
-                             th:classappend="${completedMap[entry.key + '_기본_' + entry.value[0].id] != null and completedMap[entry.key + '_기본_' + entry.value[0].id]} ? ' done' : ''">
+                             th:classappend="${completedMap[entry.key + '_' + item.id] != null and completedMap[entry.key + '_' + item.id]} ? ' done' : ''">
 
                 <span class="item-content-text"
                       th:text="${entry.key}">
@@ -63,8 +92,7 @@
 
                             <div class="item-action-buttons">
                                 <button type="button"
-                                        class="status-btn status-default-btn"
-                                        onclick="setItemResult(this, '미작성')">
+                                        class="status-btn status-default-btn">
                                     미작성
                                 </button>
 
@@ -102,7 +130,7 @@
                                 <button type="button"
                                         class="inline-save-btn"
                                         th:data-item-id="${item.id}"
-                                        th:data-category-group="${entry.key + '_기본'}"
+                                        th:data-category-group="${entry.key}"
                                         onclick="saveInlineInspection(this)">
                                     저장/닫기
                                 </button>
@@ -136,80 +164,6 @@
 
                         <div th:replace="~{fragments/locationList :: locationList}"></div>
 
-                    </div>
-
-                    <div class="default-item-label">기본 위치 점검항목</div>
-
-                    <div class="default-item-list">
-                        <div class="item-card"
-                             th:each="item : ${entry.value}"
-                             th:attr="data-current-result=${resultValueMap[entry.key + '_기본_' + item.id] != null and !#strings.isEmpty(resultValueMap[entry.key + '_기본_' + item.id]) ? resultValueMap[entry.key + '_기본_' + item.id] : '미작성'}">
-
-                            <div class="item-row"
-                                 th:classappend="${completedMap[entry.key + '_기본_' + item.id] != null and completedMap[entry.key + '_기본_' + item.id]} ? ' done' : ''">
-
-                    <span class="item-content-text"
-                          th:text="${item.order_no + '. ' + item.content}">
-                        점검내용
-                    </span>
-
-                                <div class="item-action-buttons">
-                                    <button type="button"
-                                            class="status-btn status-default-btn"
-                                            onclick="setItemResult(this, '미작성')">
-                                        미작성
-                                    </button>
-
-                                    <button type="button"
-                                            class="status-btn status-na-btn"
-                                            onclick="setItemResultAndSave(this, '해당사항없음')">
-                                        해당사항없음
-                                    </button>
-
-                                    <button type="button"
-                                            class="item-toggle-btn"
-                                            th:data-item-id="${item.id}"
-                                            th:data-item-content="${item.content}"
-                                            th:data-category-group="${entry.key + '_기본'}"
-                                            onclick="toggleItemEditorByButton(this)">
-                                        열기
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="item-editor">
-                                <div class="photo-grid editor-photo-grid">
-                                    <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
-                                        <span class="photo-slot-text">+ 현장사진</span>
-                                        <img class="photo-slot-img" style="display:none;">
-                                        <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
-                                        <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
-                                    </div>
-                                    <div class="photo-slot empty" onclick="triggerInlinePhotoInput(this)">
-                                        <span class="photo-slot-text">+ 현장사진</span>
-                                        <img class="photo-slot-img" style="display:none;">
-                                        <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
-                                        <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
-                                    </div>
-                                </div>
-
-                                <button type="button" class="add-photo-btn" onclick="addInlinePhotoSlot(this)">+ 사진추가</button>
-
-                                <div class="modal-group">
-                                    <textarea class="inline-memo" rows="4" placeholder="메모를 입력하세요"></textarea>
-                                </div>
-
-                                <div class="inline-btn-wrap">
-                                    <button type="button"
-                                            class="inline-save-btn"
-                                            th:data-item-id="${item.id}"
-                                            th:data-category-group="${entry.key + '_기본'}"
-                                            onclick="saveInlineInspection(this)">
-                                        저장/닫기
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -278,6 +232,7 @@
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="/js/offline-db.js"></script>
 <script src="/js/siteWrite.js"></script>
 </body>
 </html>

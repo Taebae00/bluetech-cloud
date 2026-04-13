@@ -49,26 +49,22 @@ public class SitePhotoService {
 
         List<InspectionResultEntity> results = resultRepo.findBySiteId(siteId);
 
-        // resultId -> result
         Map<Long, InspectionResultEntity> resultMap = new HashMap<>();
         for (InspectionResultEntity result : results) {
             resultMap.put(result.getId(), result);
         }
 
-        // item 캐시
         Map<Long, InspectionItemEntity> itemCache = new HashMap<>();
-
-        // siteId 결과에 해당하는 사진만 대상
         List<PhotoEntity> allPhotos = photoRepo.findAll();
 
-        // 폴더 중복 생성 방지
         Set<String> createdDirs = new HashSet<>();
-
-        // result별 사진 카운트
         Map<Long, Integer> photoSeqMap = new HashMap<>();
 
         try (ZipOutputStream zos = new ZipOutputStream(response.getOutputStream())) {
 
+            // =========================
+            // 1) 메모 + 해당사항없음
+            // =========================
             for (InspectionResultEntity result : results) {
 
                 InspectionItemEntity item = itemCache.computeIfAbsent(
@@ -78,9 +74,9 @@ public class SitePhotoService {
                 );
 
                 String categoryDir = buildCategoryDir(item);
-                String itemDir = buildItemDir(item);
                 String locationName = extractLocationName(result.getCategoryGroup());
                 String itemContent = safeZipEntryName(item.getContent());
+                String itemLabel = item.getOrderNo() + "." + itemContent;
 
                 String memo = result.getMemo() == null ? "" : result.getMemo().trim();
                 String resultValue = result.getResult() == null ? "" : result.getResult().trim();
@@ -88,29 +84,24 @@ public class SitePhotoService {
                 boolean isNotApplicable = "해당사항없음".equals(resultValue);
                 boolean isNotWritten = "미작성".equals(resultValue);
 
-// 해당사항없음이면 폴더도 만들지 않고 그냥 건너뜀
+                // ===== 해당사항없음 → 폴더 =====
                 if (isNotApplicable) {
-                    String naDir = categoryDir + "/" + itemDir + "/"
-                            + safeZipEntryName(item.getContent() + "_해당사항없음") + "/";
+                    String naDir = categoryDir + "/" +
+                            safeZipEntryName(itemLabel + "_해당사항없음") + "/";
 
                     if (createdDirs.add(naDir)) {
                         zos.putNextEntry(new ZipEntry(naDir));
                         zos.closeEntry();
                     }
-
                     continue;
                 }
 
-                if (isNotWritten) {
-                    continue;
-                }
+                if (isNotWritten) continue;
+                if (memo.isBlank()) continue;
 
-                if (memo.isBlank()) {
-                    continue;
-                }
-
-
-                String txtFileName = safeZipEntryName(locationName + "_" + itemContent + ".txt");
+                // ===== 메모 txt =====
+                String txtFileName = safeZipEntryName(locationName + "_" + itemLabel + "_메모.txt");
+                String zipPath = categoryDir + "/" + txtFileName;
 
                 String textContent = ""
                         + "대주제: " + item.getCategory() + System.lineSeparator()
@@ -119,19 +110,18 @@ public class SitePhotoService {
                         + "점검결과: " + resultValue + System.lineSeparator()
                         + "메모: " + memo + System.lineSeparator();
 
-                String zipPath = categoryDir + "/" + itemDir + "/" + txtFileName;
-
                 zos.putNextEntry(new ZipEntry(zipPath));
                 zos.write(textContent.getBytes(StandardCharsets.UTF_8));
                 zos.closeEntry();
             }
 
-            // 2) 사진 추가
+            // =========================
+            // 2) 사진
+            // =========================
             for (PhotoEntity photo : allPhotos) {
+
                 InspectionResultEntity result = resultMap.get(photo.getResultId());
-                if (result == null) {
-                    continue;
-                }
+                if (result == null) continue;
 
                 InspectionItemEntity item = itemCache.computeIfAbsent(
                         result.getItemId(),
@@ -140,9 +130,9 @@ public class SitePhotoService {
                 );
 
                 String categoryDir = buildCategoryDir(item);
-                String itemDir = buildItemDir(item);
                 String locationName = extractLocationName(result.getCategoryGroup());
                 String itemContent = safeZipEntryName(item.getContent());
+                String itemLabel = item.getOrderNo() + "." + itemContent;
 
                 int seq = photoSeqMap.getOrDefault(result.getId(), 0) + 1;
                 photoSeqMap.put(result.getId(), seq);
@@ -151,8 +141,11 @@ public class SitePhotoService {
                 String s3Key = extractKeyFromUrl(fileUrl);
                 String ext = extractExtension(fileUrl);
 
-                String photoFileName = safeZipEntryName(locationName + "_" + itemContent + "_" + seq + ext);
-                String zipPath = categoryDir + "/" + itemDir + "/" + photoFileName;
+                String photoFileName = safeZipEntryName(
+                        locationName + "_" + itemLabel + "_" + seq + ext
+                );
+
+                String zipPath = categoryDir + "/" + photoFileName;
 
                 GetObjectRequest req = GetObjectRequest.builder()
                         .bucket(bucket)
@@ -168,7 +161,6 @@ public class SitePhotoService {
                     e.printStackTrace();
                 }
             }
-
 
             zos.finish();
         }
