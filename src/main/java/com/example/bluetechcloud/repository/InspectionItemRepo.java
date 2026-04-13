@@ -103,4 +103,6 @@ public interface InspectionItemRepo extends JpaRepository<InspectionItemEntity,L
 """)
     List<CategoryDTO> findSelectedCategoryListBySiteId(@Param("siteId") Long siteId);
 
+
+
 }

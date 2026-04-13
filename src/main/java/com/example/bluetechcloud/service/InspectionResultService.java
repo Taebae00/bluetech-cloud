@@ -3,9 +3,7 @@ package com.example.bluetechcloud.service;
 import com.example.bluetechcloud.entity.InspectionItemEntity;
 import com.example.bluetechcloud.entity.InspectionResultEntity;
 import com.example.bluetechcloud.entity.PhotoEntity;
-import com.example.bluetechcloud.model.InspectionItemDTO;
-import com.example.bluetechcloud.model.InspectionResultDTO;
-import com.example.bluetechcloud.model.PhotoDTO;
+import com.example.bluetechcloud.model.*;
 import com.example.bluetechcloud.repository.InspectionItemRepo;
 import com.example.bluetechcloud.repository.InspectionResultRepo;
 import com.example.bluetechcloud.repository.PhotoRepo;
@@ -119,7 +117,7 @@ public class InspectionResultService {
                         .id(entity.getId())
                         .site_id(entity.getSiteId())
                         .item_id(entity.getItemId())
-                        .category_group(entity.getCategoryGroup()) // ⭐ 추가
+                        .category_group(entity.getCategoryGroup())
                         .result(entity.getResult())
                         .memo(entity.getMemo())
                         .created_at(entity.getCreatedAt())
@@ -280,5 +278,67 @@ public class InspectionResultService {
         }
 
         inspectionResultRepo.save(resultEntity);
+    }
+
+    @Transactional
+    public Map<String, Long> syncOffline(Long siteId, SyncRequest request) {
+        Map<String, Long> resultIdMap = new HashMap<>();
+
+        if (request == null) {
+            return resultIdMap;
+        }
+
+        if (request.getResults() != null) {
+            for (SyncResultItem item : request.getResults()) {
+                if (item.getSiteId() == null || item.getItemId() == null || item.getCategoryGroup() == null) {
+                    continue;
+                }
+
+                Optional<InspectionResultEntity> optional =
+                        inspectionResultRepo.findBySiteIdAndItemIdAndCategoryGroup(
+                                item.getSiteId(),
+                                item.getItemId(),
+                                item.getCategoryGroup()
+                        );
+
+                InspectionResultEntity entity = optional.orElseGet(InspectionResultEntity::new);
+
+                entity.setSiteId(item.getSiteId());
+                entity.setItemId(item.getItemId());
+                entity.setCategoryGroup(item.getCategoryGroup());
+                entity.setResult(item.getResult());
+                entity.setMemo(item.getMemo());
+
+                InspectionResultEntity saved = inspectionResultRepo.save(entity);
+
+                if (item.getDraftKey() != null) {
+                    resultIdMap.put(item.getDraftKey(), saved.getId());
+                }
+            }
+        }
+
+        if (request.getLocations() != null) {
+            for (SyncLocationItem loc : request.getLocations()) {
+                // 위치 add/delete는 나중에 붙여도 됨
+                // 1차는 결과/사진 동기화 먼저
+            }
+        }
+
+        return resultIdMap;
+    }
+
+    @Transactional
+    public void saveSyncedPhoto(Long resultId, MultipartFile photo) {
+        if (resultId == null || photo == null || photo.isEmpty()) {
+            return;
+        }
+
+        String fileUrl = fileService.upload(photo);
+
+        PhotoEntity entity = new PhotoEntity();
+        entity.setResultId(resultId);
+        entity.setFileUrl(fileUrl);
+
+        photoRepo.save(entity);
     }
 }

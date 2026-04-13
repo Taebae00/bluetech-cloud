@@ -1,3 +1,79 @@
+let isSyncing = false;
+
+function setSyncLoading(show, text = "잠시만 기다려주세요.") {
+    const modal = document.getElementById("syncStatusModal");
+    const subtext = document.getElementById("syncStatusSubtext");
+    const title = document.getElementById("syncStatusTitle");
+    const closeBtn = document.getElementById("syncStatusCloseBtn");
+    const syncBtn = document.querySelector(".sync-btn");
+
+    if (subtext) subtext.textContent = text;
+
+    if (title && show) {
+        title.textContent = "동기화 중입니다...";
+    }
+
+    if (closeBtn && show) {
+        closeBtn.disabled = true;
+    }
+
+    if (syncBtn) {
+        syncBtn.disabled = show;
+        syncBtn.textContent = show ? "동기화 중..." : "동기화";
+    }
+
+    if (modal) {
+        modal.style.display = show ? "flex" : "none";
+    }
+}
+
+async function updatePendingSyncBadge() {
+    const siteId = Number($("#siteId").val());
+    const syncBtn = document.querySelector(".sync-btn");
+    if (!syncBtn) return;
+
+    const results = (await OfflineDB.getAll("draft_results"))
+        .filter(x => x.siteId === siteId && x.syncStatus === "pending");
+
+    const totalCount = results.length;
+
+    syncBtn.textContent = totalCount > 0 ? `동기화 (${totalCount})` : "동기화";
+}
+
+function finishSyncStatus(success, message) {
+    const title = document.getElementById("syncStatusTitle");
+    const subtext = document.getElementById("syncStatusSubtext");
+    const closeBtn = document.getElementById("syncStatusCloseBtn");
+    const syncBtn = document.querySelector(".sync-btn");
+
+    if (title) {
+        title.textContent = success ? "동기화 완료" : "동기화 실패";
+    }
+
+    if (subtext) {
+        subtext.textContent = message || (success ? "완료 버튼을 눌러 닫아주세요." : "문제가 발생했습니다. 다시 시도해주세요.");
+    }
+
+    if (closeBtn) {
+        closeBtn.disabled = false;
+    }
+
+    if (syncBtn) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "동기화";
+    }
+}
+
+
+function closeSyncStatusModal() {
+    if (isSyncing) return;
+
+    const modal = document.getElementById("syncStatusModal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
 function toggleCategory(button) {
     const box = button.closest(".category-box");
     const inner = box.querySelector(".category-inner");
@@ -9,6 +85,140 @@ function toggleCategory(button) {
 
     if (!isOpen && inner) {
         inner.classList.add("open");
+    }
+}
+
+function makeDraftKey(siteId, itemId, categoryGroup) {
+    return `${siteId}_${itemId}_${categoryGroup}`;
+}
+
+async function saveInlineInspection(button) {
+    if (button.dataset.saving === "true") return;
+
+    const siteId = $("#siteId").val();
+    const itemId = button.dataset.itemId;
+    const categoryGroup = button.dataset.categoryGroup;
+    const editor = button.closest(".item-editor");
+    const memo = editor.querySelector(".inline-memo")?.value.trim() || "";
+
+    const itemCard = button.closest(".item-card");
+    const itemRow = itemCard.querySelector(".item-row");
+    const currentResult = itemCard.dataset.currentResult || "미작성";
+    const draftKey = makeDraftKey(siteId, itemId, categoryGroup);
+
+    const originalText = button.textContent;
+    button.dataset.saving = "true";
+    button.disabled = true;
+    button.textContent = "로컬저장중...";
+
+    try {
+        const photoInputs = editor.querySelectorAll(".inline-photo-input");
+        for (const input of photoInputs) {
+            if (input.files && input.files.length > 0) {
+                const file = input.files[0];
+                const slot = input.closest(".photo-slot");
+
+                // 이미 로컬 사진이 있던 슬롯이면 기존 로컬 draft 삭제 후 교체
+                if (slot?.dataset.localPhotoKey) {
+                    await OfflineDB.deleteByKey("draft_photos", slot.dataset.localPhotoKey);
+                    delete slot.dataset.localPhotoKey;
+                }
+
+                const photoKey = generateUUID();
+
+                await OfflineDB.put("draft_photos", {
+                    photoKey,
+                    draftKey,
+                    fileBlob: file,
+                    fileName: file.name,
+                    isDeleted: false,
+                    syncStatus: "pending",
+                    createdAt: new Date().toISOString()
+                });
+
+                if (slot) {
+                    slot.dataset.localPhotoKey = photoKey;
+                    delete slot.dataset.savedPhotoId;
+                }
+
+                input.value = "";
+            }
+        }
+
+        const hasPhoto = Array.from(editor.querySelectorAll(".photo-slot"))
+            .some(slot => {
+                const hasSavedPhoto = !!slot.dataset.savedPhotoId;
+                const hasLocalPhoto = !!slot.dataset.localPhotoKey;
+                const hasFilled = slot.classList.contains("filled");
+                return hasSavedPhoto || hasLocalPhoto || hasFilled;
+            });
+
+        // 3. 최종 result 계산
+        let finalResult = "미작성";
+
+        if (currentResult === "해당사항없음") {
+            finalResult = "해당사항없음";
+        } else if (memo !== "" || hasPhoto) {
+            finalResult = "작성";
+        }
+
+        // 4. 최종 result로 draft_results 저장
+        await OfflineDB.put("draft_results", {
+            draftKey,
+            siteId: Number(siteId),
+            itemId: Number(itemId),
+            categoryGroup,
+            result: finalResult,
+            memo,
+            updatedAt: new Date().toISOString(),
+            syncStatus: "pending"
+        });
+
+        // 5. 화면 상태도 finalResult로 맞춤
+        itemCard.dataset.currentResult = finalResult;
+
+        if (finalResult === "작성" || finalResult === "해당사항없음") {
+            if (itemRow) itemRow.classList.add("done");
+        } else {
+            if (itemRow) itemRow.classList.remove("done");
+        }
+
+        syncStatusButton(itemCard);
+
+        const locationBox = itemCard.closest(".location-box");
+        if (locationBox) updateLocationProgress(locationBox);
+
+        recalcSiteProgress();
+        await refreshVisibleItemStates();
+        await updatePendingSyncBadge();
+
+        alert("로컬 저장 완료");
+    } catch (e) {
+        console.error(e);
+        alert("로컬 저장 실패");
+    } finally {
+        button.dataset.saving = "false";
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+function updateSyncProgress(done, total, text = "") {
+    const percent = total <= 0 ? 0 : Math.min(100, Math.round((done / total) * 100));
+    const fill = document.getElementById("syncProgressFill");
+    const progressText = document.getElementById("syncProgressText");
+    const subtext = document.getElementById("syncStatusSubtext");
+
+    if (fill) {
+        fill.style.width = `${percent}%`;
+    }
+
+    if (progressText) {
+        progressText.textContent = total > 0 ? `${percent}% (${done}/${total})` : "0%";
+    }
+
+    if (subtext && text) {
+        subtext.textContent = text;
     }
 }
 
@@ -68,12 +278,68 @@ function syncStatusButton(itemCard) {
     }
 }
 
+async function refreshVisibleItemStates() {
+    const siteId = $("#siteId").val();
+    const allDrafts = await OfflineDB.getAll("draft_results");
+    const allPhotos = await OfflineDB.getAll("draft_photos");
+
+    document.querySelectorAll(".item-card").forEach(itemCard => {
+        const saveBtn = itemCard.querySelector(".inline-save-btn");
+        if (!saveBtn) return;
+
+        const itemId = saveBtn.dataset.itemId;
+        const categoryGroup = saveBtn.dataset.categoryGroup;
+        const draftKey = makeDraftKey(siteId, itemId, categoryGroup);
+
+        const draft = allDrafts.find(x => x.draftKey === draftKey);
+        const localPhotos = allPhotos.filter(x => x.draftKey === draftKey && x.isDeleted !== true);
+
+        const row = itemCard.querySelector(".item-row");
+
+        // 로컬 변경이 전혀 없으면 서버가 렌더한 현재 상태를 유지
+        if (!draft && localPhotos.length === 0) {
+            syncStatusButton(itemCard);
+            return;
+        }
+
+        const editor = itemCard.querySelector(".item-editor");
+        const memoInput = editor?.querySelector(".inline-memo");
+        const memoValue = draft ? (draft.memo || "") : (memoInput?.value?.trim() || "");
+
+        const hasPhoto = localPhotos.length > 0 ||
+            Array.from(itemCard.querySelectorAll(".photo-slot")).some(slot =>
+                !!slot.dataset.savedPhotoId || !!slot.dataset.localPhotoKey || slot.classList.contains("filled")
+            );
+
+        if (draft?.result === "해당사항없음") {
+            itemCard.dataset.currentResult = "해당사항없음";
+        } else if (memoValue !== "" || hasPhoto) {
+            itemCard.dataset.currentResult = "작성";
+        } else {
+            itemCard.dataset.currentResult = "미작성";
+        }
+
+        if (row) {
+            if (itemCard.dataset.currentResult === "작성" || itemCard.dataset.currentResult === "해당사항없음") {
+                row.classList.add("done");
+            } else {
+                row.classList.remove("done");
+            }
+        }
+
+        syncStatusButton(itemCard);
+    });
+
+    document.querySelectorAll(".location-box").forEach(updateLocationProgress);
+    recalcSiteProgress();
+}
+
 function recalcSiteProgress() {
     const siteNameBox = document.querySelector(".site-name");
     const categoryBoxes = document.querySelectorAll(".category-box");
+    const fixedTotal = Number(document.getElementById("siteTotalCount")?.value || categoryBoxes.length);
 
     let siteCompleted = 0;
-    const siteTotal = categoryBoxes.length;
 
     categoryBoxes.forEach(categoryBox => {
         const hasAnyInputInCategory = Array.from(categoryBox.querySelectorAll(".item-card"))
@@ -91,7 +357,7 @@ function recalcSiteProgress() {
         const siteTitle = document.querySelector(".page-title")
             ?.textContent?.replace(" 현장 점검 작성", "") || "현장";
 
-        siteNameBox.textContent = `${siteTitle} 현장 (${siteCompleted}/${siteTotal})`;
+        siteNameBox.textContent = `${siteTitle} 현장 (${siteCompleted}/${fixedTotal})`;
     }
 }
 
@@ -197,7 +463,13 @@ function deleteLocation(button) {
     const siteId = $("#siteId").val();
     const categoryGroup = button.dataset.categoryGroup;
 
+    if (button.dataset.deleting === "true") return;
     if (!confirm("이 위치를 삭제할까요?")) return;
+
+    const originalText = button.textContent;
+    button.dataset.deleting = "true";
+    button.disabled = true;
+    button.textContent = "삭제중...";
 
     $.ajax({
         type: "POST",
@@ -219,6 +491,11 @@ function deleteLocation(button) {
         error: function (xhr) {
             console.error(xhr.responseText);
             alert("위치 삭제 실패");
+        },
+        complete: function () {
+            button.dataset.deleting = "false";
+            button.disabled = false;
+            button.textContent = originalText;
         }
     });
 }
@@ -236,45 +513,90 @@ function bindInlinePhotoSlot(slot) {
 
     if (!input) return;
 
-    input.onchange = function () {
+    input.onchange = async function () {
         const file = input.files[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            img.src = e.target.result;
-            img.style.display = "block";
-            text.style.display = "none";
-            delBtn.style.display = "flex";
-            slot.classList.remove("empty");
-            slot.classList.add("filled");
-            delete slot.dataset.savedPhotoId;
-        };
-        reader.readAsDataURL(file);
+        const savedPhotoId = slot.dataset.savedPhotoId;
+
+        try {
+            // 기존 서버 사진이 있는 슬롯에 새 사진을 올리면 삭제 예약 먼저
+            if (savedPhotoId) {
+                await OfflineDB.put("draft_photos", {
+                    photoKey: `delete_${savedPhotoId}`,
+                    serverPhotoId: Number(savedPhotoId),
+                    isDeleted: true,
+                    syncStatus: "pending",
+                    createdAt: new Date().toISOString()
+                });
+            }
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                img.src = e.target.result;
+                img.style.display = "block";
+                text.style.display = "none";
+                delBtn.style.display = "flex";
+                slot.classList.remove("empty");
+                slot.classList.add("filled");
+
+                delete slot.dataset.savedPhotoId;
+
+            };
+            reader.readAsDataURL(file);
+
+            await updatePendingSyncBadge();
+        } catch (e) {
+            console.error(e);
+            alert("사진 교체 준비 실패");
+        }
     };
 }
 
-function removeInlinePhoto(event, button) {
+
+async function removeInlinePhoto(event, button) {
     event.stopPropagation();
 
+    if (button.dataset.deleting === "true") return;
+
     const slot = button.closest(".photo-slot");
+    const localPhotoKey = slot.dataset.localPhotoKey;
     const savedPhotoId = slot.dataset.savedPhotoId;
 
-    if (savedPhotoId) {
-        $.ajax({
-            type: "POST",
-            url: "/inspection/photo/delete",
-            data: { photoId: savedPhotoId },
-            success: function () {
-                clearInlineSlot(slot);
-            },
-            error: function (xhr) {
-                console.error(xhr.responseText);
-                alert("사진 삭제 실패");
-            }
-        });
-    } else {
+    const originalText = button.textContent;
+    button.dataset.deleting = "true";
+    button.disabled = true;
+    button.textContent = "...";
+
+    try {
+        if (localPhotoKey) {
+            await OfflineDB.deleteByKey("draft_photos", localPhotoKey);
+            clearInlineSlot(slot);
+            await updatePendingSyncBadge();
+            return;
+        }
+
+        if (savedPhotoId) {
+            await OfflineDB.put("draft_photos", {
+                photoKey: `delete_${savedPhotoId}`,
+                serverPhotoId: Number(savedPhotoId),
+                isDeleted: true,
+                syncStatus: "pending",
+                createdAt: new Date().toISOString()
+            });
+            clearInlineSlot(slot);
+            await updatePendingSyncBadge();
+            return;
+        }
+
         clearInlineSlot(slot);
+    } catch (e) {
+        console.error(e);
+        alert("사진 삭제 처리 실패");
+    } finally {
+        button.dataset.deleting = "false";
+        button.disabled = false;
+        button.textContent = originalText;
     }
 }
 
@@ -285,16 +607,81 @@ function clearInlineSlot(slot) {
     const delBtn = slot.querySelector(".photo-delete-btn");
 
     if (input) input.value = "";
+
     if (img) {
+        if (img.dataset.objectUrl) {
+            URL.revokeObjectURL(img.dataset.objectUrl);
+            delete img.dataset.objectUrl;
+        }
         img.src = "";
         img.style.display = "none";
     }
+
     if (text) text.style.display = "block";
     if (delBtn) delBtn.style.display = "none";
 
     slot.classList.add("empty");
     slot.classList.remove("filled");
+
     delete slot.dataset.savedPhotoId;
+    delete slot.dataset.localPhotoKey;
+}
+
+function ensurePhotoSlots(grid, count) {
+    const slots = Array.from(grid.querySelectorAll(".photo-slot"));
+
+    while (slots.length < Math.max(2, count)) {
+        const div = document.createElement("div");
+        div.className = "photo-slot empty";
+        div.innerHTML = `
+            <span class="photo-slot-text">+ 현장사진</span>
+            <img class="photo-slot-img" style="display:none;">
+            <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+            <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+        `;
+        div.onclick = function () { triggerInlinePhotoInput(div); };
+        grid.appendChild(div);
+        bindInlinePhotoSlot(div);
+        slots.push(div);
+    }
+
+    return slots;
+}
+
+function renderAllPhotos(editor, photoItems) {
+    const grid = editor.querySelector(".editor-photo-grid");
+    if (!grid) return;
+
+    const list = photoItems || [];
+    const slots = ensurePhotoSlots(grid, list.length);
+
+    slots.forEach(slot => clearInlineSlot(slot));
+
+    list.forEach((photo, index) => {
+        const slot = slots[index];
+        const img = slot.querySelector(".photo-slot-img");
+        const text = slot.querySelector(".photo-slot-text");
+        const delBtn = slot.querySelector(".photo-delete-btn");
+
+        let src = "";
+
+        if (photo.type === "local") {
+            src = URL.createObjectURL(photo.fileBlob);
+            img.dataset.objectUrl = src;
+            slot.dataset.localPhotoKey = photo.photoKey;
+        } else {
+            src = photo.fileUrl || "";
+            slot.dataset.savedPhotoId = photo.id;
+        }
+
+        img.src = src;
+        img.style.display = "block";
+        text.style.display = "none";
+        delBtn.style.display = "flex";
+
+        slot.classList.remove("empty");
+        slot.classList.add("filled");
+    });
 }
 
 function addInlinePhotoSlot(button) {
@@ -315,6 +702,46 @@ function addInlinePhotoSlot(button) {
     bindInlinePhotoSlot(div);
 }
 
+
+function renderLocalPhotos(editor, photos) {
+    const grid = editor.querySelector(".editor-photo-grid");
+    if (!grid) return;
+
+    const slots = Array.from(grid.querySelectorAll(".photo-slot"));
+    const list = photos || [];
+
+    while (slots.length < Math.max(2, list.length)) {
+        const div = document.createElement("div");
+        div.className = "photo-slot empty";
+        div.innerHTML = `
+      <span class="photo-slot-text">+ 현장사진</span>
+      <img class="photo-slot-img" style="display:none;">
+      <input type="file" class="inline-photo-input" accept="image/*" capture="environment" style="display:none;">
+      <button type="button" class="photo-delete-btn" style="display:none;" onclick="removeInlinePhoto(event, this)">×</button>
+    `;
+        div.onclick = function () { triggerInlinePhotoInput(div); };
+        grid.appendChild(div);
+        bindInlinePhotoSlot(div);
+        slots.push(div);
+    }
+
+    slots.forEach(slot => clearInlineSlot(slot));
+
+    list.forEach((photo, index) => {
+        const slot = slots[index];
+        const img = slot.querySelector(".photo-slot-img");
+        const text = slot.querySelector(".photo-slot-text");
+        const delBtn = slot.querySelector(".photo-delete-btn");
+
+        img.src = URL.createObjectURL(photo.fileBlob);
+        img.style.display = "block";
+        text.style.display = "none";
+        delBtn.style.display = "flex";
+        slot.classList.remove("empty");
+        slot.classList.add("filled");
+        slot.dataset.localPhotoKey = photo.photoKey;
+    });
+}
 function renderSavedPhotos(editor, photos) {
     const grid = editor.querySelector(".editor-photo-grid");
     if (!grid) return;
@@ -355,152 +782,89 @@ function renderSavedPhotos(editor, photos) {
     });
 }
 
-function loadInlineInspectionData(button, editor) {
+async function loadInlineInspectionData(button, editor) {
     const siteId = $("#siteId").val();
     const itemId = button.dataset.itemId;
     const categoryGroup = button.dataset.categoryGroup;
+    const draftKey = makeDraftKey(siteId, itemId, categoryGroup);
 
     const itemCard = button.closest(".item-card");
 
-    $.ajax({
-        type: "GET",
-        url: "/inspection/detail",
-        data: { siteId, itemId, categoryGroup },
-        success: function (res) {
-            const memo = editor.querySelector(".inline-memo");
-            if (memo) {
-                memo.value = res.memo || "";
-                memo.disabled = false;
-                memo.readOnly = false;
-            }
+    try {
+        const serverRes = await $.ajax({
+            type: "GET",
+            url: "/inspection/detail",
+            data: { siteId, itemId, categoryGroup }
+        });
 
-            renderSavedPhotos(editor, res.photos || []);
+        const localDraft = await OfflineDB.get("draft_results", draftKey);
+        const allLocalPhotos = await OfflineDB.getAll("draft_photos");
 
-            const hasPhoto = (res.photos || []).length > 0;
-            const hasMemo = !!(res.memo && res.memo.trim() !== "");
-            const resultValue = res.result || "미작성";
+        const localPhotos = allLocalPhotos.filter(photo =>
+            photo.draftKey === draftKey &&
+            photo.isDeleted !== true
+        );
 
-            if (resultValue === "해당사항없음") {
-                itemCard.dataset.currentResult = "해당사항없음";
-            } else if (hasMemo || hasPhoto || resultValue === "작성") {
-                itemCard.dataset.currentResult = "작성";
-            } else {
-                itemCard.dataset.currentResult = "미작성";
-            }
+        const deletedServerPhotoIds = allLocalPhotos
+            .filter(photo => photo.isDeleted === true && photo.serverPhotoId)
+            .map(photo => Number(photo.serverPhotoId));
 
-            const row = itemCard.querySelector(".item-row");
-            if (row) {
-                if (itemCard.dataset.currentResult === "작성" || itemCard.dataset.currentResult === "해당사항없음") {
-                    row.classList.add("done");
-                } else {
-                    row.classList.remove("done");
-                }
-            }
+        const serverPhotos = (serverRes.photos || [])
+            .filter(photo => !deletedServerPhotoIds.includes(Number(photo.id)));
 
-            syncStatusButton(itemCard);
-        },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-            alert("점검 정보 조회 실패");
+        const mergedPhotos = [
+            ...serverPhotos.map(photo => ({
+                type: "server",
+                id: photo.id,
+                fileUrl: photo.fileUrl || photo.file_url || photo.url || ""
+            })),
+            ...localPhotos.map(photo => ({
+                type: "local",
+                photoKey: photo.photoKey,
+                fileBlob: photo.fileBlob,
+                fileName: photo.fileName
+            }))
+        ];
+
+        const finalMemo = localDraft ? (localDraft.memo || "") : (serverRes.memo || "");
+        const finalResult = localDraft ? (localDraft.result || "미작성") : (serverRes.result || "미작성");
+
+        const memo = editor.querySelector(".inline-memo");
+        if (memo) {
+            memo.value = finalMemo;
+            memo.disabled = false;
+            memo.readOnly = false;
         }
-    });
-}
 
-function saveInlineInspection(button) {
-    if (button.dataset.saving === "true") {
-        return;
+        renderAllPhotos(editor, mergedPhotos);
+
+        const hasPhoto = mergedPhotos.length > 0;
+        const hasMemo = !!(finalMemo && finalMemo.trim() !== "");
+
+        if (finalResult === "해당사항없음") {
+            itemCard.dataset.currentResult = "해당사항없음";
+        } else if (hasMemo || hasPhoto || finalResult === "작성") {
+            itemCard.dataset.currentResult = "작성";
+        } else {
+            itemCard.dataset.currentResult = "미작성";
+        }
+
+        const row = itemCard.querySelector(".item-row");
+        if (row) {
+            if (itemCard.dataset.currentResult === "작성" || itemCard.dataset.currentResult === "해당사항없음") {
+                row.classList.add("done");
+            } else {
+                row.classList.remove("done");
+            }
+        }
+
+        syncStatusButton(itemCard);
+    } catch (e) {
+        console.error(e);
+        alert("점검 정보 조회 실패");
     }
-
-    const siteId = $("#siteId").val();
-    const itemId = button.dataset.itemId;
-    const categoryGroup = button.dataset.categoryGroup;
-    const editor = button.closest(".item-editor");
-    const memo = editor.querySelector(".inline-memo").value.trim();
-
-    const itemCard = button.closest(".item-card");
-    const result = itemCard.dataset.currentResult || "미작성";
-
-    const originalText = button.textContent;
-    button.dataset.saving = "true";
-    button.disabled = true;
-    button.textContent = "저장중...";
-
-    const formData = new FormData();
-    formData.append("siteId", siteId);
-    formData.append("itemId", itemId);
-    formData.append("categoryGroup", categoryGroup);
-    formData.append("result", result);
-    formData.append("memo", memo);
-
-    editor.querySelectorAll(".inline-photo-input").forEach(input => {
-        if (input.files.length > 0) {
-            formData.append("photos", input.files[0]);
-        }
-    });
-
-    $.ajax({
-        type: "POST",
-        url: "/inspection/save",
-        data: formData,
-        processData: false,
-        contentType: false,
-        success: function () {
-            const itemRow = itemCard.querySelector(".item-row");
-            const hasPhoto = Array.from(editor.querySelectorAll(".photo-slot"))
-                .some(slot => {
-                    const savedPhotoId = slot.dataset.savedPhotoId;
-                    const input = slot.querySelector(".inline-photo-input");
-                    const hasNewFile = input && input.files && input.files.length > 0;
-                    const hasPreview = slot.classList.contains("filled");
-                    return !!savedPhotoId || hasNewFile || hasPreview;
-                });
-
-            let currentResult = itemCard.dataset.currentResult || "미작성";
-
-            if (currentResult === "해당사항없음") {
-                itemCard.dataset.currentResult = "해당사항없음";
-                itemRow.classList.add("done");
-            } else if (memo !== "" || hasPhoto) {
-                itemCard.dataset.currentResult = "작성";
-                itemRow.classList.add("done");
-            } else {
-                itemCard.dataset.currentResult = "미작성";
-                itemRow.classList.remove("done");
-            }
-
-            const locationBox = document.querySelector(
-                `.delete-location-btn[data-category-group='${categoryGroup}']`
-            )?.closest(".location-box");
-
-            updateLocationProgress(locationBox);
-
-            const memoInput = editor.querySelector(".inline-memo");
-            if (memoInput) {
-                memoInput.disabled = false;
-                memoInput.readOnly = false;
-            }
-
-            syncStatusButton(itemCard);
-            recalcSiteProgress();
-
-            editor.classList.remove("open");
-
-            const toggleBtn = itemCard.querySelector(".item-toggle-btn");
-            if (toggleBtn) {
-                toggleBtn.textContent = "열기";
-            }
-        },
-        error: function (xhr) {
-            console.error(xhr.responseText);
-            alert(xhr.responseText || "저장 실패");
-        },
-        complete: function () {
-            button.dataset.saving = "false";
-            button.disabled = false;
-            button.textContent = originalText;
-        }
-    });
 }
+
 
 document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll(".item-editor").forEach(bindMemoAutoWrite);
@@ -543,6 +907,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const deleteSiteBtn = document.getElementById("deleteSiteBtn");
     if (deleteSiteBtn) {
         deleteSiteBtn.addEventListener("click", function () {
+            if (deleteSiteBtn.dataset.deleting === "true") return;
+
             const siteId = document.getElementById("siteId").value;
 
             if (!confirm("정말 이 현장을 삭제하시겠습니까?")) return;
@@ -552,6 +918,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 alert("입력이 일치하지 않아 취소되었습니다.");
                 return;
             }
+
+            const originalText = deleteSiteBtn.textContent;
+            deleteSiteBtn.dataset.deleting = "true";
+            deleteSiteBtn.disabled = true;
+            deleteSiteBtn.textContent = "삭제중...";
 
             $.ajax({
                 type: "POST",
@@ -564,10 +935,18 @@ document.addEventListener("DOMContentLoaded", function () {
                 error: function (xhr) {
                     console.error(xhr.responseText);
                     alert("삭제 실패");
+                },
+                complete: function () {
+                    deleteSiteBtn.dataset.deleting = "false";
+                    deleteSiteBtn.disabled = false;
+                    deleteSiteBtn.textContent = originalText;
                 }
             });
         });
     }
+
+    refreshVisibleItemStates();
+    updatePendingSyncBadge();
 });
 
 let currentResultTarget = null;
@@ -935,5 +1314,146 @@ function saveCategoryEdit() {
             console.error(xhr.responseText);
             alert(xhr.responseText || "점검항목 수정 중 오류가 발생했습니다.");
         }
+    });
+}
+
+async function syncOfflineData() {
+    if (isSyncing) return;
+
+    const siteId = Number($("#siteId").val());
+
+    try {
+        isSyncing = true;
+        setSyncLoading(true, "동기화 준비 중입니다.");
+
+        const allResults = await OfflineDB.getAll("draft_results");
+        const allPhotos = await OfflineDB.getAll("draft_photos");
+
+        const results = allResults.filter(x =>
+            x.siteId === siteId && x.syncStatus === "pending"
+        );
+
+        const resultDraftKeys = new Set(results.map(r => r.draftKey));
+
+        // 새로 업로드할 사진만
+        const uploadPhotos = allPhotos.filter(x => {
+            if (x.syncStatus !== "pending") return false;
+            if (x.isDeleted === true) return false;
+            return !!x.draftKey && resultDraftKeys.has(x.draftKey);
+        });
+
+        // 삭제 예약된 서버 사진
+        const deletePhotos = allPhotos.filter(x => {
+            if (x.syncStatus !== "pending") return false;
+            if (x.isDeleted !== true) return false;
+            return !!x.serverPhotoId;
+        });
+
+        // 사용자 기준 카운트:
+        // - 메모 있는 result만 1건
+        // - 새 사진은 장수만큼 1건
+        const memoResults = results.filter(r => (r.memo || "").trim() !== "");
+        const totalSteps = memoResults.length + uploadPhotos.length;
+
+        if (results.length === 0 && uploadPhotos.length === 0 && deletePhotos.length === 0) {
+            updateSyncProgress(0, 0, "동기화할 데이터가 없습니다.");
+            finishSyncStatus(true, "동기화할 데이터가 없습니다. 완료 버튼을 눌러 닫아주세요.");
+            return;
+        }
+
+        let doneSteps = 0;
+        updateSyncProgress(doneSteps, totalSteps, "점검 결과를 서버에 저장하는 중입니다.");
+
+        // 1. 결과 저장 (서버에는 result 전체를 보내야 함)
+        const res = await fetch(`/sync/site/${siteId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                results: results,
+                locations: []
+            })
+        });
+
+        if (!res.ok) {
+            throw new Error("결과 동기화 실패");
+        }
+
+        const data = await res.json();
+        const resultIdMap = data.resultIdMap || {};
+
+        // 메모 있는 result만 진행률 반영
+        doneSteps += memoResults.length;
+        updateSyncProgress(
+            doneSteps,
+            totalSteps,
+            memoResults.length > 0 ? "메모 동기화 완료" : "메모 동기화할 데이터 없음"
+        );
+
+        // 2. 서버 사진 삭제 예약 처리 (진행률 카운트 제외)
+        for (const photo of deletePhotos) {
+            await fetch("/inspection/photo/delete", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: new URLSearchParams({
+                    photoId: photo.serverPhotoId
+                })
+            });
+        }
+
+        // 3. 새 사진 업로드
+        for (const photo of uploadPhotos) {
+            const resultId = resultIdMap[photo.draftKey];
+            if (!resultId) continue;
+
+            const formData = new FormData();
+            formData.append("resultId", resultId);
+            formData.append("photo", photo.fileBlob, photo.fileName);
+
+            const uploadRes = await fetch("/sync/photo/upload", {
+                method: "POST",
+                body: formData
+            });
+
+            if (!uploadRes.ok) {
+                throw new Error("사진 업로드 실패");
+            }
+
+            doneSteps++;
+            updateSyncProgress(doneSteps, totalSteps, "사진 업로드 중...");
+        }
+
+        // 4. 동기화 성공한 로컬 데이터 정리
+        for (const r of results) {
+            await OfflineDB.deleteByKey("draft_results", r.draftKey);
+        }
+
+        for (const p of [...uploadPhotos, ...deletePhotos]) {
+            await OfflineDB.deleteByKey("draft_photos", p.photoKey);
+        }
+
+        await refreshVisibleItemStates();
+        await updatePendingSyncBadge();
+
+        finishSyncStatus(true, "동기화가 완료되었습니다. 완료 버튼을 눌러 닫아주세요.");
+    } catch (e) {
+        console.error(e);
+        finishSyncStatus(false, "동기화 중 문제가 발생했습니다. 다시 시도해주세요.");
+    } finally {
+        isSyncing = false;
+    }
+}
+
+function generateUUID() {
+    if (window.crypto && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+
+    // fallback (구형 브라우저)
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
     });
 }

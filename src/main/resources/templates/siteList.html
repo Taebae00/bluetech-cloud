@@ -40,11 +40,6 @@
             </div>
 
             <div class="site-info">
-                <span>작업일자 :</span>
-                <span th:text="${site.getWork_date()}"></span>
-            </div>
-
-            <div class="site-info">
                 <span>작성일시 :</span>
                 <span th:text="${site.getCreated_at() != null ? #temporals.format(site.getCreated_at(), 'yyyy-MM-dd HH:mm') : ''}"></span>
             </div>

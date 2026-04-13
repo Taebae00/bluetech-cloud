@@ -33,12 +33,13 @@ public class MainController {
     private final SitePhotoService sitePhotoService;
     private final InspectionItemRepo inspectionItemRepo;
     private final SiteInspectionItemRepo siteInspectionItemRepo;
+    private final ExcelReportService  excelReportService;
 
     public MainController(UserService userService, SiteService siteService,
                           InspectionItemService inspectionItemService,
                           InspectionResultService inspectionResultService,
                           FileService fileService, InspectionItemRepo inspectionItemRepo, UserRepo userRepo, PhotoRepo photoRepo,
-                          SitePhotoService sitePhotoService, InspectionItemRepo inspectionItemRepo1, SiteInspectionItemRepo siteInspectionItemRepo) {
+                          SitePhotoService sitePhotoService, InspectionItemRepo inspectionItemRepo1, SiteInspectionItemRepo siteInspectionItemRepo, ExcelReportService excelReportService) {
         this.userService = userService;
         this.siteService = siteService;
         this.inspectionItemService = inspectionItemService;
@@ -48,6 +49,7 @@ public class MainController {
         this.sitePhotoService = sitePhotoService;
         this.inspectionItemRepo = inspectionItemRepo1;
         this.siteInspectionItemRepo = siteInspectionItemRepo;
+        this.excelReportService = excelReportService;
     }
 
     // 🔥 공통 로그인 체크
@@ -226,7 +228,6 @@ public class MainController {
         Map<String, List<InspectionItemDTO>> baseGroupedItems = new LinkedHashMap<>();
 
         if ("현황표".equals(siteWorkType)) {
-            // 현황표는 카테고리당 1개만
             for (InspectionItemEntity entity : selectedItemEntities) {
                 InspectionItemDTO dto = new InspectionItemDTO();
                 dto.setId(entity.getId());
@@ -239,7 +240,6 @@ public class MainController {
                 baseGroupedItems.put(entity.getCategory(), List.of(dto));
             }
         } else {
-            // 성능점검 / 유지관리는 전체 세부항목
             for (InspectionItemEntity entity : selectedItemEntities) {
                 InspectionItemDTO dto = new InspectionItemDTO();
                 dto.setId(entity.getId());
@@ -254,8 +254,6 @@ public class MainController {
                         .add(dto);
             }
         }
-
-        inspectionResultService.ensureDefaultCategoryGroups(siteId, baseGroupedItems);
 
         List<InspectionResultDTO> resultList = inspectionResultService.getResultsBySiteId(siteId);
 
@@ -277,27 +275,34 @@ public class MainController {
             if (group == null || group.isBlank()) continue;
 
             group = group.trim();
+
             int idx = group.indexOf("_");
-            if (idx < 0) continue;
+            if (idx < 0) continue; // 위치 없는 group은 무시
 
             String baseCategory = group.substring(0, idx).trim();
             String locationName = group.substring(idx + 1).trim();
 
             if (!tempGroupSetMap.containsKey(baseCategory)) continue;
+            if (locationName.isBlank()) continue;
 
             String key = group + "_" + result.getItem_id();
             String resultValue = result.getResult() == null ? "" : result.getResult().trim();
+            String memoValue = result.getMemo() == null ? "" : result.getMemo().trim();
 
-            if ("작성".equals(resultValue) || "해당사항없음".equals(resultValue)) {
+            boolean hasPhoto = !photoRepo.findByResultId(result.getId()).isEmpty();
+            boolean hasMemo = !memoValue.isBlank();
+
+            String normalizedResult = resultValue;
+            if (!"해당사항없음".equals(resultValue) && (hasPhoto || hasMemo)) {
+                normalizedResult = "작성";
+            }
+
+            if ("작성".equals(normalizedResult) || "해당사항없음".equals(normalizedResult)) {
                 completedMap.put(key, true);
             }
 
-            resultValueMap.put(key, resultValue);
-
-// 기본은 위치 목록에 안 보임
-            if (!"기본".equals(locationName)) {
-                tempGroupSetMap.get(baseCategory).add(group);
-            }
+            resultValueMap.put(key, normalizedResult);
+            tempGroupSetMap.get(baseCategory).add(group);
         }
 
         int siteTotalCount = baseGroupedItems.size();
@@ -312,13 +317,7 @@ public class MainController {
 
             for (String groupName : groups) {
                 int idx = groupName.indexOf("_");
-                String locationName = idx >= 0 && idx < groupName.length() - 1
-                        ? groupName.substring(idx + 1).trim()
-                        : "기본";
-
-                if (locationName.isBlank()) {
-                    locationName = "기본";
-                }
+                String locationName = groupName.substring(idx + 1).trim();
 
                 int total = items.size();
                 int completed = 0;
@@ -339,7 +338,6 @@ public class MainController {
 
                 locationViewMap.get(baseCategory).add(locationInfo);
             }
-
 
             if (categoryHasAnyInput) {
                 siteCompletedCount++;
@@ -363,13 +361,13 @@ public class MainController {
                                           Model model,
                                           HttpSession session) {
 
-        Map<String, Boolean> completedMap = new HashMap<>();
-        Map<String, String> resultValueMap = new HashMap<>();
-
         UserDTO user = checkLogin(session);
         if (user == null) {
             throw new RuntimeException("로그인이 필요합니다.");
         }
+
+        Map<String, Boolean> completedMap = new HashMap<>();
+        Map<String, String> resultValueMap = new HashMap<>();
 
         List<SiteInspectionItemEntity> mappingList = siteInspectionItemRepo.findBySiteId(siteId);
         List<Long> itemIds = mappingList.stream()
@@ -416,12 +414,9 @@ public class MainController {
             }
         }
 
-        inspectionResultService.ensureDefaultCategoryGroups(siteId, baseGroupedItems);
-
         List<InspectionResultDTO> resultList = inspectionResultService.getResultsBySiteId(siteId);
 
         Map<String, List<Map<String, Object>>> locationViewMap = new LinkedHashMap<>();
-
         for (String baseCategory : baseGroupedItems.keySet()) {
             locationViewMap.put(baseCategory, new ArrayList<>());
         }
@@ -435,6 +430,7 @@ public class MainController {
             String group = result.getCategory_group();
             if (group == null || group.isBlank()) continue;
 
+            group = group.trim();
             int idx = group.indexOf("_");
             if (idx < 0) continue;
 
@@ -442,6 +438,7 @@ public class MainController {
             String locationName = group.substring(idx + 1).trim();
 
             if (!tempGroupSetMap.containsKey(baseCategory)) continue;
+            if (locationName.isBlank()) continue;
 
             String resultValue = result.getResult() == null ? "" : result.getResult().trim();
             if ("작성".equals(resultValue) || "해당사항없음".equals(resultValue)) {
@@ -449,13 +446,7 @@ public class MainController {
             }
 
             resultValueMap.put(group + "_" + result.getItem_id(), resultValue);
-
-// 기본은 위치 목록에 안 보임
-            if (!"기본".equals(locationName)) {
-                tempGroupSetMap.get(baseCategory).add(group);
-            }
-
-
+            tempGroupSetMap.get(baseCategory).add(group);
         }
 
         for (Map.Entry<String, List<InspectionItemDTO>> entry : baseGroupedItems.entrySet()) {
@@ -465,9 +456,7 @@ public class MainController {
 
             for (String groupName : groups) {
                 int idx = groupName.indexOf("_");
-                String locationName = idx >= 0 && idx < groupName.length() - 1
-                        ? groupName.substring(idx + 1).trim()
-                        : "기본";
+                String locationName = groupName.substring(idx + 1).trim();
 
                 int completed = 0;
                 for (InspectionItemDTO item : items) {
@@ -478,13 +467,12 @@ public class MainController {
 
                 Map<String, Object> locationInfo = new HashMap<>();
                 locationInfo.put("groupName", groupName);
-                locationInfo.put("locationName", locationName.isBlank() ? "기본" : locationName);
+                locationInfo.put("locationName", locationName);
                 locationInfo.put("completed", completed);
                 locationInfo.put("total", items.size());
 
                 locationViewMap.get(baseCategory).add(locationInfo);
             }
-
         }
 
         model.addAttribute("entryKey", categoryName);
@@ -824,6 +812,41 @@ public class MainController {
         siteInspectionItemRepo.saveAll(newMappings);
 
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/sync/site/{siteId}")
+    @ResponseBody
+    public ResponseEntity<?> syncSite(@PathVariable Long siteId,
+                                      @RequestBody SyncRequest request,
+                                      HttpSession session) {
+        UserDTO user = checkLogin(session);
+        if (user == null) {
+            return ResponseEntity.status(401).body("로그인 필요");
+        }
+
+        Map<String, Long> resultIdMap = inspectionResultService.syncOffline(siteId, request);
+        Map<String, Object> response = new HashMap<>();
+        response.put("resultIdMap", resultIdMap);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/sync/photo/upload")
+    @ResponseBody
+    public ResponseEntity<?> uploadSyncedPhoto(@RequestParam Long resultId,
+                                               @RequestParam MultipartFile photo,
+                                               HttpSession session) {
+        UserDTO user = checkLogin(session);
+        if (user == null) {
+            return ResponseEntity.status(401).body("로그인 필요");
+        }
+
+        inspectionResultService.saveSyncedPhoto(resultId, photo);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/site/{siteId}/excel")
+    public void downloadExcel(@PathVariable Long siteId, HttpServletResponse response) throws IOException {
+        excelReportService.downloadPerformanceCheckExcel(siteId, response);
     }
 }
 
